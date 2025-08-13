@@ -187,14 +187,14 @@ export default function CalendarScreen() {
     <>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
       <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          {/*<Text style={styles.screenTitle}>🐕 산책 일기</Text>*/}
-        </View>
-
+        <View style={styles.header} />
         <ScrollView
           style={styles.content}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: insets.bottom + tabBarHeight + 24 }}
+          contentContainerStyle={{
+            paddingTop: insets.top + 24,
+            paddingBottom: insets.bottom + tabBarHeight + 24
+          }}
           contentInsetAdjustmentBehavior="always"
         >
           <View style={styles.calendarCard}>
@@ -283,8 +283,7 @@ export default function CalendarScreen() {
 
           {dayRecords.some(r => isSameMonth(new Date(r.date), currentDate)) && (
             <View style={styles.summarySection}>
-              {/*<Text style={styles.sectionTitle}>🐕 이달의 기록</Text>*/}
-              <ScrollView horizontal showsVerticalScrollIndicator={false}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={styles.summaryList}>
                   {dayRecords
                     .filter(r => isSameMonth(new Date(r.date), currentDate))
@@ -478,7 +477,7 @@ const styles = StyleSheet.create({
 
   content: { flex:1, paddingHorizontal: SP[4] },
 
-  calendarCard: { backgroundColor: COLORS.surface, borderRadius: RADII.xl, borderWidth: 0, padding: SP[4] },
+  calendarCard: { backgroundColor: COLORS.surface, borderRadius: RADII.xl, borderWidth: 0, padding: SP[4], marginTop: SP[6] },
   cardCaption: { color: COLORS.subtext, fontSize: 12, marginBottom: SP[2] },
   headlineRow: { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom: SP[2] },
   cardHeadline: { fontSize: 28, fontWeight:'800', color: COLORS.text },
@@ -544,7 +543,7 @@ const styles = StyleSheet.create({
 
   modalButtons: { flexDirection:'row', gap: SP[2], marginTop: SP[2] },
   primaryButton: { flex:1, backgroundColor: COLORS.primary, borderRadius: RADII.sm, paddingVertical: 12, alignItems:'center' },
-  primaryButtonText: { color: COLORS.onPrimary, fontSize: 16, fontWeight:'800' },
+  primaryButtonText: { color: COLORS.onPrimary, fontSize: 16, fontWeight: '800' },
   secondaryButton: { flex:1, backgroundColor: COLORS.white, borderRadius: RADII.sm, paddingVertical: 12, alignItems:'center' },
   secondaryButtonText: { color: COLORS.text, fontSize: 16, fontWeight:'800' },
   deleteButton: { flex:1, backgroundColor: '#E74C3C', borderRadius: RADII.sm, paddingVertical: 12, alignItems:'center' },
