@@ -27,13 +27,19 @@
       },
       "statusBar": {
         "hidden": true
-      }
+      },
+      "package": "com.hanguyun.sancheckgaja"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "cbb42f5d-37f2-49c8-90dd-77ed39c85c8b"
+      }
+    }
   }
 }
