@@ -1,20 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
+import { router } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
   ActivityIndicator,
+  Alert,
   Linking,
   Platform,
-  StatusBar
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import { router } from 'expo-router';
 import MapView, { Marker, Region } from 'react-native-maps';
-import * as Location from 'expo-location';
 
 interface Hospital {
   id: number;
@@ -39,66 +40,16 @@ export default function HospitalScreen() {
     longitudeDelta: 0.05,
   });
 
-  // 샘플 동물병원 데이터 (실제로는 API에서 가져올 수 있음)
+  // 샘플 데이터
   const hospitals: Hospital[] = [
-    {
-      id: 1,
-      name: '우리동물병원',
-      address: '서울시 강남구 테헤란로 123',
-      phone: '02-1234-5678',
-      latitude: 37.5665 + 0.01,
-      longitude: 126.9780 + 0.01,
-      rating: 4.8,
-      isEmergency: false,
-      hours: '09:00-18:00'
-    },
-    {
-      id: 2,
-      name: '24시 응급동물병원',
-      address: '서울시 강남구 강남대로 456',
-      phone: '02-2345-6789',
-      latitude: 37.5665 - 0.01,
-      longitude: 126.9780 + 0.015,
-      rating: 4.7,
-      isEmergency: true,
-      hours: '24시간'
-    },
-    {
-      id: 3,
-      name: '행복한동물병원',
-      address: '서울시 강남구 선릉로 789',
-      phone: '02-3456-7890',
-      latitude: 37.5665 + 0.015,
-      longitude: 126.9780 - 0.01,
-      rating: 4.6,
-      isEmergency: false,
-      hours: '10:00-19:00'
-    },
-    {
-      id: 4,
-      name: '사랑동물병원',
-      address: '서울시 강남구 봉은사로 101',
-      phone: '02-4567-8901',
-      latitude: 37.5665 - 0.005,
-      longitude: 126.9780 - 0.015,
-      rating: 4.9,
-      isEmergency: false,
-      hours: '09:30-18:30'
-    },
-    {
-      id: 5,
-      name: '펫케어 동물병원',
-      address: '서울시 강남구 역삼로 202',
-      phone: '02-5678-9012',
-      latitude: 37.5665 + 0.008,
-      longitude: 126.9780 + 0.005,
-      rating: 4.5,
-      isEmergency: false,
-      hours: '08:00-20:00'
-    }
+    { id:1, name:'우리동물병원', address:'서울시 강남구 테헤란로 123', phone:'02-1234-5678', latitude:37.5765, longitude:126.988, rating:4.8, isEmergency:false, hours:'09:00-18:00' },
+    { id:2, name:'24시 응급동물병원', address:'서울시 강남구 강남대로 456', phone:'02-2345-6789', latitude:37.5565, longitude:126.993, rating:4.7, isEmergency:true, hours:'24시간' },
+    { id:3, name:'행복한동물병원', address:'서울시 강남구 선릉로 789', phone:'02-3456-7890', latitude:37.5815, longitude:126.968, rating:4.6, isEmergency:false, hours:'10:00-19:00' },
+    { id:4, name:'사랑동물병원', address:'서울시 강남구 봉은사로 101', phone:'02-4567-8901', latitude:37.5615, longitude:126.963, rating:4.9, isEmergency:false, hours:'09:30-18:30' },
+    { id:5, name:'펫케어 동물병원', address:'서울시 강남구 역삼로 202', phone:'02-5678-9012', latitude:37.5745, longitude:126.983, rating:4.5, isEmergency:false, hours:'08:00-20:00' },
   ];
 
-  // 네비게이션 바 숨기기
+  // 네비게이션 바 숨김
   useEffect(() => {
     const hideNavigationBar = async () => {
       if (Platform.OS === 'android') {
@@ -106,428 +57,296 @@ export default function HospitalScreen() {
           const NavigationBar = await import('expo-navigation-bar');
           await NavigationBar.setVisibilityAsync('hidden');
           await NavigationBar.setBehaviorAsync('overlay-swipe');
-        } catch (error) {
-          console.log('네비게이션 바 제어 불가:', error);
-        }
+        } catch {}
       }
     };
     hideNavigationBar();
   }, []);
 
-  // 위치 권한 요청 및 현재 위치 가져오기
+  // 위치 권한 + 현재 위치
   useEffect(() => {
     (async () => {
       try {
-        let { status } = await Location.requestForegroundPermissionsAsync();
+        const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
           Alert.alert('위치 권한', '근처 동물병원을 찾으려면 위치 권한이 필요합니다.');
           setIsLoading(false);
           return;
         }
-
-        let currentLocation = await Location.getCurrentPositionAsync({});
-        setLocation(currentLocation);
-        
-        // 현재 위치로 지도 중심 설정
-        setRegion({
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
-        });
-        
-        setIsLoading(false);
-      } catch (error) {
-        console.log('위치 가져오기 실패:', error);
+        const cur = await Location.getCurrentPositionAsync({});
+        setLocation(cur);
+        setRegion(r => ({ ...r, latitude: cur.coords.latitude, longitude: cur.coords.longitude }));
+      } catch (e) {
+        console.log('위치 실패:', e);
+      } finally {
         setIsLoading(false);
       }
     })();
   }, []);
 
-  // 거리 계산 함수
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371; // 지구 반지름 (km)
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    const distance = R * c;
-    return distance.toFixed(1);
+  const calculateDistance = (lat1:number, lon1:number, lat2:number, lon2:number) => {
+    const R = 6371, dLat=(lat2-lat1)*Math.PI/180, dLon=(lon2-lon1)*Math.PI/180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+    return (R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(1);
   };
 
-  // 전화걸기 함수
-  const makePhoneCall = (phoneNumber: string) => {
-    const url = Platform.OS === 'ios' ? `telprompt:${phoneNumber}` : `tel:${phoneNumber}`;
+  const makePhoneCall = (phone:string) => {
+    const url = Platform.OS === 'ios' ? `telprompt:${phone}` : `tel:${phone}`;
+    Linking.canOpenURL(url).then(s => s ? Linking.openURL(url) : Alert.alert('오류','전화 기능을 사용할 수 없습니다.'));
+  };
+
+  const openNavigation = (h:Hospital) => {
+    const url = Platform.OS === 'ios' ? `maps://?daddr=${h.latitude},${h.longitude}` : `google.navigation:q=${h.latitude},${h.longitude}`;
     Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          return Linking.openURL(url);
-        } else {
-          Alert.alert('오류', '전화 기능을 사용할 수 없습니다.');
-        }
-      })
-      .catch((err) => console.log('전화 오류:', err));
+      .then(s => s ? Linking.openURL(url) : Linking.openURL(`https://maps.google.com/maps?daddr=${h.latitude},${h.longitude}`))
+      .catch(e => console.log('네비 오류:', e));
   };
 
-  // 길찾기 함수
-  const openNavigation = (hospital: Hospital) => {
-    const url = Platform.OS === 'ios' 
-      ? `maps://?daddr=${hospital.latitude},${hospital.longitude}`
-      : `google.navigation:q=${hospital.latitude},${hospital.longitude}`;
-    
-    Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          return Linking.openURL(url);
-        } else {
-          // 대체 URL
-          const webUrl = `https://maps.google.com/maps?daddr=${hospital.latitude},${hospital.longitude}`;
-          return Linking.openURL(webUrl);
-        }
-      })
-      .catch((err) => console.log('네비게이션 오류:', err));
-  };
-
-  // 병원까지의 거리 계산된 병원 목록
-  const hospitalsWithDistance = hospitals.map(hospital => ({
-    ...hospital,
-    distance: location 
-      ? calculateDistance(
-          location.coords.latitude,
-          location.coords.longitude,
-          hospital.latitude,
-          hospital.longitude
-        ) + 'km'
-      : '위치 없음'
-  })).sort((a, b) => {
-    if (!location) return 0;
-    const distanceA = parseFloat(a.distance?.replace('km', '') || '999');
-    const distanceB = parseFloat(b.distance?.replace('km', '') || '999');
-    return distanceA - distanceB;
-  });
+  const hospitalsWithDistance = hospitals
+    .map(h => ({
+      ...h,
+      distance: location
+        ? `${calculateDistance(location.coords.latitude, location.coords.longitude, h.latitude, h.longitude)}km`
+        : '위치 없음'
+    }))
+    .sort((a,b) => parseFloat(a.distance||'999') - parseFloat(b.distance||'999'));
 
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#45B7D1" />
-          <Text style={styles.loadingText}>근처 동물병원을 찾는 중...</Text>
+        <View style={styles.loadingBox}>
+          <ActivityIndicator size="large" color="#2E6FF2" />
+          <Text style={styles.loadingText}>근처 동물병원을 찾는 중…</Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  const emergencyHospital = hospitals.find(h => h.isEmergency);
+
   return (
     <>
-      <StatusBar hidden={true} />
+      <StatusBar barStyle="dark-content" backgroundColor="#F5F7FB" />
       <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.backButtonText}>‹</Text>
-        </TouchableOpacity>
-        <Text style={styles.screenTitle}>🏥 우리 동네 병원</Text>
-        <View style={styles.headerRight} />
-      </View>
+        {/* 상단 헤더 */}
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => router.back()}>
+            <MaterialCommunityIcons name="chevron-left" size={24} color="#1A1A1A" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Hospital</Text>
+          <View style={styles.iconBtn} />
+        </View>
 
-      {/* 응급상황 버튼 */}
-      <TouchableOpacity 
-        style={styles.emergencyButton}
-        onPress={() => {
-          const emergencyHospital = hospitals.find(h => h.isEmergency);
-          if (emergencyHospital) {
-            Alert.alert(
-              '응급상황',
-              `${emergencyHospital.name}으로 연결하시겠습니까?`,
-              [
-                { text: '취소', style: 'cancel' },
-                { text: '전화걸기', onPress: () => makePhoneCall(emergencyHospital.phone) }
-              ]
-            );
-          }
-        }}
-      >
-        <Text style={styles.emergencyText}>🚨 응급상황</Text>
-        <Text style={styles.emergencySubtext}>24시간 응급병원</Text>
-      </TouchableOpacity>
+        {/* 검색 & 툴바 */}
+        <View style={styles.toolbar}>
+          <TouchableOpacity
+            style={styles.searchBar}
+            activeOpacity={0.8}
+            onPress={() => Alert.alert('검색', '검색 기능은 곧 제공됩니다.')}
+          >
+            <MaterialCommunityIcons name="magnify" size={18} color="#8A8F98" />
+            <Text style={styles.searchPlaceholder}>동물병원 검색</Text>
+          </TouchableOpacity>
 
-      {/* 지도 */}
-      <View style={styles.mapContainer}>
-        <MapView
-          style={styles.map}
-          region={region}
-          showsUserLocation={!!location}
-          showsMyLocationButton={true}
-          onRegionChangeComplete={setRegion}
-        >
-          {/* 동물병원 마커들 */}
-          {hospitals.map((hospital) => (
-            <Marker
-              key={hospital.id}
-              coordinate={{
-                latitude: hospital.latitude,
-                longitude: hospital.longitude,
-              }}
-              title={hospital.name}
-              description={`⭐ ${hospital.rating} • ${hospital.hours}`}
-              pinColor={hospital.isEmergency ? '#E74C3C' : '#45B7D1'}
-              onCalloutPress={() => {
-                Alert.alert(
-                  hospital.name,
-                  `${hospital.address}\n평점: ⭐ ${hospital.rating}\n운영시간: ${hospital.hours}`,
-                  [
-                    { text: '닫기', style: 'cancel' },
-                    { text: '전화걸기', onPress: () => makePhoneCall(hospital.phone) },
-                    { text: '길찾기', onPress: () => openNavigation(hospital) }
-                  ]
-                );
-              }}
-            />
-          ))}
-        </MapView>
-      </View>
-
-      {/* 병원 목록 */}
-      <View style={styles.listContainer}>
-        <Text style={styles.sectionTitle}>근처 동물병원 ({hospitalsWithDistance.length}곳)</Text>
-        <ScrollView style={styles.hospitalList} showsVerticalScrollIndicator={false}>
-          {hospitalsWithDistance.map((hospital) => (
-            <TouchableOpacity 
-              key={hospital.id} 
-              style={[
-                styles.hospitalItem,
-                hospital.isEmergency && styles.emergencyHospitalItem
-              ]}
-              onPress={() => {
-                Alert.alert(
-                  hospital.name,
-                  `${hospital.address}\n평점: ⭐ ${hospital.rating}\n운영시간: ${hospital.hours}`,
-                  [
-                    { text: '닫기', style: 'cancel' },
-                    { text: '전화걸기', onPress: () => makePhoneCall(hospital.phone) },
-                    { text: '길찾기', onPress: () => openNavigation(hospital) }
-                  ]
-                );
-              }}
+          <View style={styles.filterRow}>
+            <TouchableOpacity
+              style={styles.filterChip}
+              activeOpacity={0.8}
+              onPress={() => Alert.alert('기간', '기간 선택은 곧 제공됩니다.')}
             >
-              <View style={styles.hospitalInfo}>
-                <View style={styles.hospitalHeader}>
-                  <Text style={styles.hospitalName}>
-                    {hospital.name}
-                    {hospital.isEmergency && <Text style={styles.emergencyBadge}> 24H</Text>}
-                  </Text>
-                  <Text style={styles.hospitalDistance}>{hospital.distance}</Text>
-                </View>
-                <Text style={styles.hospitalAddress}>{hospital.address}</Text>
-                <View style={styles.hospitalMeta}>
-                  <Text style={styles.hospitalRating}>⭐ {hospital.rating}</Text>
-                  <Text style={styles.hospitalHours}>🕐 {hospital.hours}</Text>
-                </View>
-                <Text style={styles.hospitalPhone}>📞 {hospital.phone}</Text>
-              </View>
-              <View style={styles.hospitalActions}>
-                <TouchableOpacity 
-                  style={styles.callButton}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    makePhoneCall(hospital.phone);
-                  }}
-                >
-                  <Text style={styles.callButtonText}>전화</Text>
-                </TouchableOpacity>
-              </View>
+              <MaterialCommunityIcons name="calendar-blank-outline" size={16} color="#1B2B28" />
+              <Text style={styles.filterText}>오늘 ~ 7일</Text>
+              <MaterialCommunityIcons name="pencil-outline" size={16} color="#8A8F98" />
             </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-    </SafeAreaView>
+
+            {emergencyHospital && (
+              <TouchableOpacity
+                style={styles.emergencyChip}
+                activeOpacity={0.85}
+                onPress={() =>
+                  Alert.alert(
+                    '응급상황',
+                    `${emergencyHospital.name}으로 연결하시겠습니까?`,
+                    [
+                      { text: '취소', style: 'cancel' },
+                      { text: '전화걸기', onPress: () => makePhoneCall(emergencyHospital.phone) }
+                    ]
+                  )
+                }
+              >
+                <MaterialCommunityIcons name="alarm-light" size={14} color="#FFF" />
+                <Text style={styles.emergencyChipText}>24H</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* 지도 카드 */}
+        <View style={styles.mapCard}>
+          <MapView
+            style={{ flex:1 }}
+            region={region}
+            showsUserLocation={!!location}
+            showsMyLocationButton
+            onRegionChangeComplete={setRegion}
+          >
+            {hospitals.map(h => (
+              <Marker
+                key={h.id}
+                coordinate={{ latitude: h.latitude, longitude: h.longitude }}
+                title={h.name}
+                description={`⭐ ${h.rating} • ${h.hours}`}
+                pinColor={h.isEmergency ? '#FF5A5F' : '#2E6FF2'}
+                onCalloutPress={() => {
+                  Alert.alert(
+                    h.name,
+                    `${h.address}\n평점: ⭐ ${h.rating}\n운영시간: ${h.hours}`,
+                    [
+                      { text:'닫기', style:'cancel' },
+                      { text:'전화걸기', onPress: () => makePhoneCall(h.phone) },
+                      { text:'길찾기', onPress: () => openNavigation(h) },
+                    ]
+                  );
+                }}
+              />
+            ))}
+          </MapView>
+        </View>
+
+        {/* 리스트 카드 */}
+        <View style={styles.listCard}>
+          <View style={styles.listHeaderRow}>
+            <Text style={styles.listTitle}>근처 동물병원</Text>
+            <Text style={styles.listCount}>{hospitalsWithDistance.length}곳</Text>
+          </View>
+
+          <ScrollView style={{ flex:1 }} showsVerticalScrollIndicator={false}>
+            {hospitalsWithDistance.map(h => (
+              <View
+                key={h.id}
+                style={[styles.item, h.isEmergency && styles.itemEmergency]}
+              >
+                <View style={{ flex:1 }}>
+                  <View style={styles.itemTopRow}>
+                    <Text style={styles.itemName} numberOfLines={1}>
+                      {h.name} {h.isEmergency && <Text style={styles.itemBadge}>24H</Text>}
+                    </Text>
+                    <Text style={styles.itemDistance}>{h.distance}</Text>
+                  </View>
+                  <Text style={styles.itemAddr} numberOfLines={1}>{h.address}</Text>
+                  <View style={styles.itemMeta}>
+                    <Text style={styles.itemRating}>⭐ {h.rating}</Text>
+                    <Text style={styles.itemHours}>🕐 {h.hours}</Text>
+                  </View>
+                  <Text style={styles.itemPhone}>📞 {h.phone}</Text>
+                </View>
+
+                <View style={styles.itemActions}>
+                  <TouchableOpacity style={styles.actionBtn} onPress={() => makePhoneCall(h.phone)}>
+                    <MaterialCommunityIcons name="phone" size={18} color="#FFF" />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.actionBtn, { backgroundColor:'#1A73E8' }]} onPress={() => openNavigation(h)}>
+                    <MaterialCommunityIcons name="navigation" size={18} color="#FFF" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </SafeAreaView>
     </>
   );
 }
 
+const CARD_BG = '#FFFFFF';
+const BORDER = '#E6EAF0';
+const TEXT = '#1A1A1A';
+const SUBTEXT = '#8A8F98';
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#7F8C8D',
-  },
+  container: { flex:1, backgroundColor:'#F5F7FB' },
+
+  // 헤더
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
-    zIndex: 1,
+    flexDirection:'row',
+    alignItems:'center',
+    justifyContent:'space-between',
+    paddingHorizontal:16,
+    paddingVertical:12,
+    backgroundColor:'#F5F7FB'
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F8F9FA',
-    justifyContent: 'center',
-    alignItems: 'center',
+  iconBtn: { width:36, height:36, borderRadius:18, alignItems:'center', justifyContent:'center' },
+  title: { fontSize:18, fontWeight:'700', color: TEXT },
+
+  // 툴바
+  toolbar: { paddingHorizontal:16, paddingBottom:8 },
+  searchBar: {
+    flexDirection:'row', alignItems:'center', gap:8,
+    backgroundColor:'#FFFFFF', borderColor:BORDER, borderWidth:1,
+    borderRadius:12, paddingHorizontal:12, height:40
   },
-  backButtonText: {
-    fontSize: 24,
-    color: '#2C3E50',
-    fontWeight: 'bold',
+  searchPlaceholder: { color: SUBTEXT, fontSize:14 },
+
+  filterRow: { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginTop:10 },
+  filterChip: {
+    flexDirection:'row', alignItems:'center', gap:6,
+    backgroundColor:'#FFFFFF', borderColor:BORDER, borderWidth:1,
+    borderRadius:999, paddingHorizontal:12, height:34
   },
-  screenTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#2C3E50',
+  filterText: { color: TEXT, fontSize:13, fontWeight:'600' },
+
+  emergencyChip: {
+    flexDirection:'row', alignItems:'center', gap:6,
+    backgroundColor:'#FF5A5F', borderRadius:999, paddingHorizontal:12, height:34
   },
-  headerRight: {
-    width: 40,
+  emergencyChipText: { color:'#FFF', fontSize:12, fontWeight:'800' },
+
+  // 지도 카드
+  mapCard: {
+    height:220, marginHorizontal:16, marginTop:12,
+    backgroundColor:CARD_BG, borderRadius:16,
+    overflow:'hidden', borderWidth:1, borderColor:BORDER,
+    shadowColor:'#000', shadowOpacity:0.06, shadowRadius:8, shadowOffset:{ width:0, height:4 },
+    elevation:3
   },
-  emergencyButton: {
-    backgroundColor: '#E74C3C',
-    marginHorizontal: 20,
-    marginVertical: 10,
-    borderRadius: 12,
-    padding: 15,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+
+  // 리스트 카드
+  listCard: {
+    flex:1,
+    marginTop:14,
+    backgroundColor:CARD_BG,
+    borderTopLeftRadius:20, borderTopRightRadius:20,
+    paddingTop:16, paddingHorizontal:16,
+    borderTopWidth:1, borderColor:BORDER
   },
-  emergencyText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 3,
+  listHeaderRow: { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom:8 },
+  listTitle: { fontSize:16, fontWeight:'800', color: TEXT },
+  listCount: { fontSize:12, fontWeight:'700', color: SUBTEXT },
+
+  // 아이템
+  item: {
+    flexDirection:'row', alignItems:'center',
+    padding:14, borderRadius:14, backgroundColor:'#FAFBFF',
+    borderWidth:1, borderColor:BORDER, marginBottom:10, gap:12
   },
-  emergencySubtext: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    opacity: 0.9,
+  itemEmergency: { borderColor:'#FF5A5F', backgroundColor:'#FFF6F6' },
+  itemTopRow: { flexDirection:'row', alignItems:'center', justifyContent:'space-between' },
+  itemName: { fontSize:15, fontWeight:'700', color: TEXT, maxWidth:'72%' },
+  itemBadge: { fontSize:11, color:'#FF5A5F', fontWeight:'800' },
+  itemDistance: { fontSize:13, color:'#1A73E8', fontWeight:'800' },
+  itemAddr: { fontSize:13, color:SUBTEXT, marginTop:2 },
+  itemMeta: { flexDirection:'row', gap:14, marginTop:4 },
+  itemRating: { fontSize:13, color:'#F39C12' },
+  itemHours: { fontSize:13, color:SUBTEXT },
+  itemPhone: { fontSize:13, color:'#1A73E8', marginTop:2 },
+
+  itemActions: { alignItems:'flex-end', gap:8 },
+  actionBtn: {
+    width:36, height:36, borderRadius:10, alignItems:'center', justifyContent:'center',
+    backgroundColor:'#27AE60'
   },
-  mapContainer: {
-    height: 250,
-    margin: 15,
-    borderRadius: 15,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  map: {
-    flex: 1,
-  },
-  listContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 20,
-    paddingHorizontal: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2C3E50',
-    marginBottom: 15,
-  },
-  hospitalList: {
-    flex: 1,
-  },
-  hospitalItem: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  emergencyHospitalItem: {
-    borderColor: '#E74C3C',
-    borderWidth: 2,
-  },
-  hospitalInfo: {
-    flex: 1,
-  },
-  hospitalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 5,
-  },
-  hospitalName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2C3E50',
-    flex: 1,
-  },
-  emergencyBadge: {
-    fontSize: 12,
-    color: '#E74C3C',
-    fontWeight: 'bold',
-  },
-  hospitalDistance: {
-    fontSize: 14,
-    color: '#45B7D1',
-    fontWeight: 'bold',
-  },
-  hospitalAddress: {
-    fontSize: 14,
-    color: '#7F8C8D',
-    marginBottom: 5,
-  },
-  hospitalMeta: {
-    flexDirection: 'row',
-    gap: 15,
-    marginBottom: 3,
-  },
-  hospitalRating: {
-    fontSize: 14,
-    color: '#F39C12',
-  },
-  hospitalHours: {
-    fontSize: 14,
-    color: '#7F8C8D',
-  },
-  hospitalPhone: {
-    fontSize: 14,
-    color: '#45B7D1',
-  },
-  hospitalActions: {
-    alignItems: 'flex-end',
-  },
-  callButton: {
-    backgroundColor: '#27AE60',
-    borderRadius: 8,
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-  },
-  callButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
+
+  // 로딩
+  loadingBox: { flex:1, alignItems:'center', justifyContent:'center' },
+  loadingText: { marginTop:10, color:SUBTEXT, fontSize:14 },
 });

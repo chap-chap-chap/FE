@@ -1,12 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal,
-  Image, Alert, Platform, Dimensions, TextInput, StatusBar, TouchableWithoutFeedback
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import * as ImagePicker from 'expo-image-picker';
+import React, { useEffect, useState } from 'react';
+import {
+  Alert,
+  Dimensions,
+  Image,
+  Modal,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as ImagePicker from 'expo-image-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 
 const { width } = Dimensions.get('window');
 
@@ -29,7 +41,8 @@ interface DayRecord {
   date: string;
   photos: string[];
   memo: string;
-  runningRecord?: RunningRecord;
+  runningRecord?: RunningRecord;         // (하위호환) 예전 단일 기록
+  runningLogs?: RunningRecord[];         // 누적 기록
   mood: '😊' | '😐' | '😢' | '🤗' | '😴' | '';
 }
 
@@ -45,6 +58,10 @@ export default function CalendarScreen() {
   const [tempMemo, setTempMemo] = useState('');
   const [tempRunning, setTempRunning] = useState<RunningRecord>({ duration:'', distance:'', calories:'', dogCalories:'' });
   const [tempMood, setTempMood] = useState<'😊'|'😐'|'😢'|'🤗'|'😴'|''>('');
+
+  // 상세(요약) 모달
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [detailRecord, setDetailRecord] = useState<DayRecord | null>(null);
 
   const [showMonthYear, setShowMonthYear] = useState(false);
   const [pickYear, setPickYear] = useState(currentDate.getFullYear());
@@ -127,7 +144,7 @@ export default function CalendarScreen() {
     if (ex) {
       setCurrentRecord(ex);
       setTempMemo(ex.memo);
-      setTempRunning(ex.runningRecord || { duration:'', distance:'', calories:'', dogCalories:'' });
+      setTempRunning({ duration:'', distance:'', calories:'', dogCalories:'' });
       setTempMood(ex.mood);
     } else {
       const n: DayRecord = { date: ds, photos: [], memo: '', mood: '' };
@@ -144,20 +161,31 @@ export default function CalendarScreen() {
     setShowRecordModal(true);
   };
 
+  const hasNewRun = (r: RunningRecord) =>
+    Boolean(r.duration?.trim() || r.distance?.trim() || r.calories?.trim() || r.dogCalories?.trim());
+
   const saveRecord = async () => {
     if (!currentRecord || !selectedDate) return;
+
+    const existingLogs = [
+      ...(currentRecord.runningLogs ?? []),
+      ...(currentRecord.runningRecord ? [currentRecord.runningRecord] : []),
+    ];
+
     const final: DayRecord = {
       ...currentRecord,
       memo: tempMemo,
       mood: tempMood,
-      runningRecord: (tempRunning.duration || tempRunning.distance || tempRunning.calories || tempRunning.dogCalories) ? tempRunning : undefined,
+      runningLogs: hasNewRun(tempRunning) ? [...existingLogs, tempRunning] : existingLogs,
+      runningRecord: undefined,
     };
+
     const updated = dayRecords.filter(r => r.date !== selectedDate);
     updated.push(final);
     setDayRecords(updated);
     await saveDayRecords(updated);
     setShowRecordModal(false);
-    Alert.alert('저장 완료', '기록이 저장되었습니다! 🐕');
+    Alert.alert('저장 완료', hasNewRun(tempRunning) ? '달리기 기록이 누적 저장되었습니다! 🐕' : '기록이 저장되었습니다! 🐕');
   };
 
   const deleteRecord = async () => {
@@ -167,6 +195,38 @@ export default function CalendarScreen() {
     await saveDayRecords(updated);
     setShowRecordModal(false);
     Alert.alert('삭제 완료', '기록이 삭제되었습니다.');
+  };
+
+  // ---------- 상세 모달 계산 유틸 ----------
+  const recToLogs = (rec?: DayRecord): RunningRecord[] => {
+    if (!rec) return [];
+    return [
+      ...(rec.runningLogs ?? []),
+      ...(rec.runningRecord ? [rec.runningRecord] : []),
+    ];
+  };
+
+  const parseNumber = (val?: string) => {
+    if (!val) return 0;
+    const n = parseFloat(val.replace(/[^0-9.]/g, ''));
+    return isNaN(n) ? 0 : n;
+  };
+
+  const sumDetail = (rec?: DayRecord) => {
+    const logs = recToLogs(rec);
+    const totalKm = logs.reduce((a, l) => a + parseNumber(l.distance), 0);
+    const totalUserKcal = logs.reduce((a, l) => a + parseNumber(l.calories), 0);
+    const totalDogKcal  = logs.reduce((a, l) => a + parseNumber(l.dogCalories), 0);
+    return {
+      km: totalKm,
+      user: totalUserKcal,
+      dog: totalDogKcal,
+    };
+  };
+
+  const openDetail = (rec: DayRecord) => {
+    setDetailRecord(rec);
+    setShowDetailModal(true);
   };
 
   const { days } = getMonthData(currentDate);
@@ -242,6 +302,7 @@ export default function CalendarScreen() {
                     const today = isToday(date);
                     const isSelected = selectedDate === fmt(date);
                     const record = recOf(date);
+                    const hasRun = !!(record?.runningLogs?.length || record?.runningRecord);
                     return (
                       <TouchableOpacity
                         key={di}
@@ -269,7 +330,7 @@ export default function CalendarScreen() {
                           <View style={styles.recordIndicators}>
                             {!!record.mood && <Text style={styles.moodIndicator}>{record.mood}</Text>}
                             {!!record.photos.length && <Text style={styles.smallIcon}>📷</Text>}
-                            {!!record.runningRecord && <Text style={styles.smallIcon}>🏃‍♂️</Text>}
+                            {hasRun && <Text style={styles.smallIcon}>🏃‍♂️</Text>}
                             {!!record.memo && <Text style={styles.smallIcon}>📝</Text>}
                           </View>
                         )}
@@ -293,18 +354,29 @@ export default function CalendarScreen() {
                         key={idx}
                         style={styles.summaryItem}
                         onPress={() => {
+                          // 카드 자체 탭 -> 편집 모달 (기존 동작 유지)
                           setSelectedDate(rec.date);
                           setCurrentRecord(rec);
                           setTempMemo(rec.memo);
-                          setTempRunning(rec.runningRecord || { duration:'', distance:'', calories:'', dogCalories:'' });
+                          setTempRunning({ duration:'', distance:'', calories:'', dogCalories:'' });
                           setTempMood(rec.mood);
                           setShowRecordModal(true);
                         }}
                       >
                         <Text style={styles.summaryDate}>{new Date(rec.date).getDate()}일</Text>
-                        {!!rec.photos.length && <Image source={{ uri: rec.photos[0] }} style={styles.summaryPhoto} />}
+
+                        {!!rec.photos.length ? (
+                          <TouchableOpacity onPress={() => openDetail(rec)} activeOpacity={0.85}>
+                            <Image source={{ uri: rec.photos[0] }} style={styles.summaryPhoto} />
+                          </TouchableOpacity>
+                        ) : (
+                          <View style={[styles.summaryPhoto, { alignItems:'center', justifyContent:'center', backgroundColor:'#ffffff' }]}>
+                            <Text style={{color:COLORS.subtext, fontSize:12}}>사진 없음</Text>
+                          </View>
+                        )}
+
                         <Text style={styles.summaryMood}>{rec.mood}</Text>
-                        {!!rec.runningRecord && <Text style={styles.summaryRun}>🏃‍♂️</Text>}
+                        {!!(rec.runningLogs?.length || rec.runningRecord) && <Text style={styles.summaryRun}>🏃‍♂️</Text>}
                       </TouchableOpacity>
                     ))}
                 </View>
@@ -313,6 +385,7 @@ export default function CalendarScreen() {
           )}
         </ScrollView>
 
+        {/* 편집 모달 (기존) */}
         <Modal
           visible={showRecordModal}
           animationType="slide"
@@ -417,6 +490,70 @@ export default function CalendarScreen() {
           </TouchableWithoutFeedback>
         </Modal>
 
+        {/* 상세(요약) 모달: 사진 클릭 시 */}
+        <Modal
+          visible={showDetailModal}
+          animationType="fade"
+          transparent
+          statusBarTranslucent
+          presentationStyle="overFullScreen"
+          onRequestClose={() => setShowDetailModal(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => setShowDetailModal(false)}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <View style={[styles.modalContent, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + tabBarHeight + 12 }]}>
+                  <ScrollView showsVerticalScrollIndicator>
+                    <Text style={styles.modalTitle}>
+                      {detailRecord ? `${new Date(detailRecord.date).getMonth()+1}월 ${new Date(detailRecord.date).getDate()}일 요약` : ''}
+                    </Text>
+
+                    {(() => {
+                      const s = sumDetail(detailRecord || undefined);
+                      return (
+                        <View style={styles.detailStatWrap}>
+                          <View style={styles.detailStat}>
+                            <Text style={styles.detailVal}>{s.km.toFixed(2)}</Text>
+                            <Text style={styles.detailLabel}>km</Text>
+                          </View>
+                          <View style={styles.detailStat}>
+                            <Text style={styles.detailVal}>{s.user}</Text>
+                            <Text style={styles.detailLabel}>유저 칼로리</Text>
+                          </View>
+                          <View style={styles.detailStat}>
+                            <Text style={styles.detailVal}>{s.dog}</Text>
+                            <Text style={styles.detailLabel}>강아지 칼로리</Text>
+                          </View>
+                        </View>
+                      );
+                    })()}
+
+                    <View style={{ marginTop: SP[3] }}>
+                      <Text style={styles.sectionLabel}>📷 사진</Text>
+                      {detailRecord?.photos?.length ? (
+                        <View style={{ gap: 10 }}>
+                          {detailRecord.photos.map((uri, i) => (
+                            <Image key={i} source={{ uri }} style={styles.detailPhoto} />
+                          ))}
+                        </View>
+                      ) : (
+                        <Text style={{ color: COLORS.subtext, marginTop: 6 }}>등록된 사진이 없습니다.</Text>
+                      )}
+                    </View>
+
+                    <View style={[styles.modalButtons, { marginTop: SP[4] }]}>
+                      <TouchableOpacity style={styles.secondaryButton} onPress={() => setShowDetailModal(false)}>
+                        <Text style={styles.secondaryButtonText}>닫기</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </ScrollView>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        {/* 월/년도 선택 모달 (기존) */}
         <Modal
           visible={showMonthYear}
           animationType="fade"
@@ -481,7 +618,6 @@ const styles = StyleSheet.create({
   cardCaption: { color: COLORS.subtext, fontSize: 12, marginBottom: SP[2] },
   headlineRow: { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom: SP[2] },
   cardHeadline: { fontSize: 28, fontWeight:'800', color: COLORS.text },
-  editGlyph: { color: COLORS.subtext, fontSize: 16 },
 
   subHeaderRow: { flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginBottom: SP[2] },
   cardSubTitle: { color: COLORS.subtext, fontSize: 12 },
@@ -510,7 +646,6 @@ const styles = StyleSheet.create({
   smallIcon: { fontSize: 10, marginHorizontal: 1 },
 
   summarySection: { marginTop: SP[4], backgroundColor: COLORS.surface, borderRadius: RADII.xl, padding: SP[4] },
-  sectionTitle: { fontSize:16, fontWeight:'800', color: COLORS.text, marginBottom: SP[3] },
   summaryList: { flexDirection:'row', columnGap: SP[4] as any },
   summaryItem: { alignItems:'center', width: 80 },
   summaryDate: { fontSize:12, color: COLORS.subtext, fontWeight:'700', marginBottom: 6 },
@@ -562,4 +697,35 @@ const styles = StyleSheet.create({
   monthChipText: { color: COLORS.text, fontWeight:'800' },
   monthChipTextSel: { color: COLORS.onPrimary, fontWeight:'800' },
   editIconWrap: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+
+  // 상세(요약) 모달 전용
+  detailStatWrap: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  detailStat: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+    borderRadius: RADII.md,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  detailVal: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: COLORS.text,
+  },
+  detailLabel: {
+    marginTop: 4,
+    fontSize: 12,
+    color: COLORS.subtext,
+    fontWeight: '700',
+  },
+  detailPhoto: {
+    width: '100%',
+    height: 220,
+    borderRadius: RADII.md,
+    backgroundColor: COLORS.white,
+  },
 });

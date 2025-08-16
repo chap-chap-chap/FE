@@ -22,19 +22,20 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "navigationBar": {
-        "visible": false
-      },
-      "statusBar": {
-        "hidden": true
-      },
       "package": "com.hanguyun.sancheckgaja"
+    },
+    "androidStatusBar": {
+      "hidden": true
+    },
+    "androidNavigationBar": {
+      "visible": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      ["expo-navigation-bar", { "visible": false }]
     ],
     "extra": {
       "eas": {
