@@ -37,13 +37,18 @@ const RADII = { sm: 8, md: 12, lg: 20, xl: 28 };
 const SP = { 0:0, 1:4, 2:8, 3:12, 4:16, 5:20, 6:24, 7:28, 8:32 };
 
 interface RunningRecord { duration: string; distance: string; calories: string; dogCalories: string; }
+interface DayEntry { runningRecord?: RunningRecord; }
 interface DayRecord {
   date: string;
   photos: string[];
   memo: string;
-  runningRecord?: RunningRecord;         // (하위호환) 예전 단일 기록
-  runningLogs?: RunningRecord[];         // 누적 기록
   mood: '😊' | '😐' | '😢' | '🤗' | '😴' | '';
+  // ✅ 홈 화면이 읽는 표준 스키마
+  entries?: DayEntry[];
+
+  // ⬇️ 하위호환(예전/다른 스키마)
+  runningRecord?: RunningRecord;         // 단일 기록
+  runningLogs?: RunningRecord[];         // 누적 기록
 }
 
 export default function CalendarScreen() {
@@ -67,10 +72,73 @@ export default function CalendarScreen() {
   const [pickYear, setPickYear] = useState(currentDate.getFullYear());
   const [pickMonth, setPickMonth] = useState(currentDate.getMonth());
 
+  // ---------- 유틸: 숫자/시간 파서 ----------
+  const num = (s?: string) => {
+    if (!s) return 0;
+    const n = parseFloat(String(s).replace(/[^\d.]/g, ''));
+    return isNaN(n) ? 0 : n;
+  };
+  // "mm:ss" | "hh:mm:ss" | "30분" | "1시간 5분" | "45" -> hours
+  const durationToHours = (raw?: string) => {
+    if (!raw) return 0;
+    const s = raw.trim();
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) {
+      const parts = s.split(':').map(v => parseInt(v, 10));
+      if (parts.length === 2) {
+        const [m, sec] = parts;
+        return m / 60 + (sec || 0) / 3600;
+      }
+      if (parts.length === 3) {
+        const [h, m, sec] = parts;
+        return h + m / 60 + (sec || 0) / 3600;
+      }
+    }
+    const h = /(\d+(?:\.\d+)?)\s*(시간|h)/i.exec(s)?.[1];
+    const m = /(\d+(?:\.\d+)?)\s*(분|m)/i.exec(s)?.[1];
+    const sec = /(\d+(?:\.\d+)?)\s*(초|s)/i.exec(s)?.[1];
+    if (h || m || sec) {
+      return (h ? parseFloat(h) : 0) + (m ? parseFloat(m) / 60 : 0) + (sec ? parseFloat(sec) / 3600 : 0);
+    }
+    if (/^\d+(\.\d+)?$/.test(s)) return parseFloat(s) / 60; // 숫자만 → 분
+    return 0;
+  };
+
   useEffect(() => {
     (async () => {
+      // 초기 로드 + 스키마 마이그레이션(runningRecord/runningLogs → entries[])
       const saved = await AsyncStorage.getItem('dayRecords');
-      if (saved) setDayRecords(JSON.parse(saved));
+      if (!saved) return;
+
+      const rawList: DayRecord[] = JSON.parse(saved);
+      let mutated = false;
+
+      const migrated = rawList.map((r) => {
+        const baseEntries: DayEntry[] = Array.isArray(r.entries) ? r.entries.filter(e => !!e?.runningRecord) : [];
+
+        // runningLogs → entries
+        if (Array.isArray(r.runningLogs) && r.runningLogs.length) {
+          r.runningLogs.forEach(log => baseEntries.push({ runningRecord: log }));
+          mutated = true;
+        }
+        // 단일 runningRecord → entries
+        if (r.runningRecord) {
+          baseEntries.push({ runningRecord: r.runningRecord });
+          mutated = true;
+        }
+        // 정리: 표준 필드에 붙이고, 구식 필드는 비우기
+        const clean: DayRecord = {
+          ...r,
+          entries: baseEntries,
+          runningLogs: undefined,
+          runningRecord: undefined,
+        };
+        return clean;
+      });
+
+      if (mutated) {
+        await AsyncStorage.setItem('dayRecords', JSON.stringify(migrated));
+      }
+      setDayRecords(migrated);
     })();
   }, []);
 
@@ -144,7 +212,7 @@ export default function CalendarScreen() {
     if (ex) {
       setCurrentRecord(ex);
       setTempMemo(ex.memo);
-      setTempRunning({ duration:'', distance:'', calories:'', dogCalories:'' });
+      setTempRunning({ duration:'', distance:'', calories:'', dogCalories:'' }); // 새 엔트리 입력용은 빈칸
       setTempMood(ex.mood);
     } else {
       const n: DayRecord = { date: ds, photos: [], memo: '', mood: '' };
@@ -167,16 +235,19 @@ export default function CalendarScreen() {
   const saveRecord = async () => {
     if (!currentRecord || !selectedDate) return;
 
-    const existingLogs = [
-      ...(currentRecord.runningLogs ?? []),
-      ...(currentRecord.runningRecord ? [currentRecord.runningRecord] : []),
-    ];
+    // 기존 entries + (있다면) 새 입력
+    const existingEntries = Array.isArray(currentRecord.entries) ? currentRecord.entries.slice() : [];
+    const nextEntries = hasNewRun(tempRunning)
+      ? [...existingEntries, { runningRecord: tempRunning }]
+      : existingEntries;
 
     const final: DayRecord = {
       ...currentRecord,
       memo: tempMemo,
       mood: tempMood,
-      runningLogs: hasNewRun(tempRunning) ? [...existingLogs, tempRunning] : existingLogs,
+      entries: nextEntries,
+      // 하위호환 필드 제거(홈에서 entries만 읽어도 되도록)
+      runningLogs: undefined,
       runningRecord: undefined,
     };
 
@@ -198,25 +269,21 @@ export default function CalendarScreen() {
   };
 
   // ---------- 상세 모달 계산 유틸 ----------
-  const recToLogs = (rec?: DayRecord): RunningRecord[] => {
+  const recToRuns = (rec?: DayRecord): RunningRecord[] => {
     if (!rec) return [];
-    return [
+    const e = (rec.entries ?? []).map(x => x.runningRecord).filter(Boolean) as RunningRecord[];
+    const legacy = [
       ...(rec.runningLogs ?? []),
       ...(rec.runningRecord ? [rec.runningRecord] : []),
     ];
-  };
-
-  const parseNumber = (val?: string) => {
-    if (!val) return 0;
-    const n = parseFloat(val.replace(/[^0-9.]/g, ''));
-    return isNaN(n) ? 0 : n;
+    return [...e, ...legacy];
   };
 
   const sumDetail = (rec?: DayRecord) => {
-    const logs = recToLogs(rec);
-    const totalKm = logs.reduce((a, l) => a + parseNumber(l.distance), 0);
-    const totalUserKcal = logs.reduce((a, l) => a + parseNumber(l.calories), 0);
-    const totalDogKcal  = logs.reduce((a, l) => a + parseNumber(l.dogCalories), 0);
+    const logs = recToRuns(rec);
+    const totalKm = logs.reduce((a, l) => a + num(l.distance), 0);
+    const totalUserKcal = logs.reduce((a, l) => a + num(l.calories), 0);
+    const totalDogKcal  = logs.reduce((a, l) => a + num(l.dogCalories), 0);
     return {
       km: totalKm,
       user: totalUserKcal,
@@ -242,6 +309,11 @@ export default function CalendarScreen() {
     setCurrentDate(new Date(pickYear, pickMonth, 1));
     setShowMonthYear(false);
   };
+
+  // ✅ 입력 중 실시간 평균 속도 계산 (거리/시간)
+  const tempHours = durationToHours(tempRunning.duration);
+  const tempKm = num(tempRunning.distance);
+  const tempAvgSpeed = tempHours > 0 ? (tempKm / tempHours) : 0;
 
   return (
     <>
@@ -302,7 +374,11 @@ export default function CalendarScreen() {
                     const today = isToday(date);
                     const isSelected = selectedDate === fmt(date);
                     const record = recOf(date);
-                    const hasRun = !!(record?.runningLogs?.length || record?.runningRecord);
+                    const hasRun = Boolean(
+                      (record?.entries && record.entries.length) ||
+                      (record?.runningLogs && record.runningLogs.length) ||
+                      record?.runningRecord
+                    );
                     return (
                       <TouchableOpacity
                         key={di}
@@ -329,7 +405,7 @@ export default function CalendarScreen() {
                         {record && (
                           <View style={styles.recordIndicators}>
                             {!!record.mood && <Text style={styles.moodIndicator}>{record.mood}</Text>}
-                            {!!record.photos.length && <Text style={styles.smallIcon}>📷</Text>}
+                            {!!record.photos?.length && <Text style={styles.smallIcon}>📷</Text>}
                             {hasRun && <Text style={styles.smallIcon}>🏃‍♂️</Text>}
                             {!!record.memo && <Text style={styles.smallIcon}>📝</Text>}
                           </View>
@@ -354,7 +430,7 @@ export default function CalendarScreen() {
                         key={idx}
                         style={styles.summaryItem}
                         onPress={() => {
-                          // 카드 자체 탭 -> 편집 모달 (기존 동작 유지)
+                          // 카드 탭 → 편집 모달
                           setSelectedDate(rec.date);
                           setCurrentRecord(rec);
                           setTempMemo(rec.memo);
@@ -365,7 +441,7 @@ export default function CalendarScreen() {
                       >
                         <Text style={styles.summaryDate}>{new Date(rec.date).getDate()}일</Text>
 
-                        {!!rec.photos.length ? (
+                        {!!rec.photos?.length ? (
                           <TouchableOpacity onPress={() => openDetail(rec)} activeOpacity={0.85}>
                             <Image source={{ uri: rec.photos[0] }} style={styles.summaryPhoto} />
                           </TouchableOpacity>
@@ -376,7 +452,7 @@ export default function CalendarScreen() {
                         )}
 
                         <Text style={styles.summaryMood}>{rec.mood}</Text>
-                        {!!(rec.runningLogs?.length || rec.runningRecord) && <Text style={styles.summaryRun}>🏃‍♂️</Text>}
+                        {Boolean((rec.entries?.length) || rec.runningLogs || rec.runningRecord) && <Text style={styles.summaryRun}>🏃‍♂️</Text>}
                       </TouchableOpacity>
                     ))}
                 </View>
@@ -385,7 +461,7 @@ export default function CalendarScreen() {
           )}
         </ScrollView>
 
-        {/* 편집 모달 (기존) */}
+        {/* 편집 모달 */}
         <Modal
           visible={showRecordModal}
           animationType="slide"
@@ -408,7 +484,7 @@ export default function CalendarScreen() {
                       <View style={styles.runningInputs}>
                         <View style={styles.inputRow}>
                           <TextInput
-                            style={styles.runningInput} placeholder="시간 (예: 30분)"
+                            style={styles.runningInput} placeholder="시간 (예: 30분 / 45:00 / 1:05:00)"
                             placeholderTextColor={COLORS.subtext}
                             value={tempRunning.duration} onChangeText={t=>setTempRunning({...tempRunning, duration:t})}
                           />
@@ -431,6 +507,16 @@ export default function CalendarScreen() {
                             value={tempRunning.dogCalories} onChangeText={t=>setTempRunning({...tempRunning, dogCalories:t})}
                             keyboardType="numeric"
                           />
+                        </View>
+
+                        {/* ✅ 입력값 기반 평균 속도 표시 */}
+                        <View style={{ marginTop: 8, paddingVertical: 10, paddingHorizontal: 12, backgroundColor: COLORS.white, borderRadius: RADII.sm }}>
+                          <Text style={{ color: COLORS.text, fontWeight: '800' }}>
+                            평균 속도: {tempAvgSpeed.toFixed(2)} km/h
+                          </Text>
+                          <Text style={{ color: COLORS.subtext, fontSize: 12, marginTop: 2 }}>
+                            * 시간과 거리를 입력하면 자동 계산됩니다.
+                          </Text>
                         </View>
                       </View>
                     </View>
@@ -553,7 +639,7 @@ export default function CalendarScreen() {
           </TouchableWithoutFeedback>
         </Modal>
 
-        {/* 월/년도 선택 모달 (기존) */}
+        {/* 월/년도 선택 모달 */}
         <Modal
           visible={showMonthYear}
           animationType="fade"
