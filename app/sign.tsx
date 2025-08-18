@@ -85,11 +85,9 @@ export default function Sign() {
   // 로그인
   const handleLogin = async () => {
     if (DEV_MODE) {
-      // ✅ 개발용: 바로 진입
       await completeSignIn(loginEmail || "dev@local");
       return;
     }
-
     if (!canLogin) return;
     const users = await loadUsers();
     const key = loginEmail.toLowerCase();
@@ -108,11 +106,9 @@ export default function Sign() {
   // 회원가입
   const handleSignUp = async () => {
     if (DEV_MODE) {
-      // ✅ 개발용: 값 검증/저장 스킵하고 바로 진입
       await completeSignIn(email || "dev@local");
       return;
     }
-
     if (!canSignUp) {
       Alert.alert("입력 확인", "모든 항목을 올바르게 입력해주세요. (비밀번호 6자 이상)");
       return;
@@ -152,13 +148,22 @@ export default function Sign() {
     <>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
       <SafeAreaView style={s.container}>
-        <View style={s.logoBox}>
-          <Text style={s.title}>산책갈까</Text>
-        </View>
+        {/* ✅ 로고와 카드 모두 같은 트리 안에 → 키보드 올라오면 함께 올라옴 */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={0}
+        >
+          <ScrollView
+            contentContainerStyle={s.scroll}
+            keyboardShouldPersistTaps="handled"
+            bounces={false}
+          >
+            {/* 🔔 로고를 absolute에서 일반 블록으로 변경 */}
+            <View style={s.logoBox}>
+              <Text style={s.title}>산책갈까</Text>
+            </View>
 
-        {/* 키보드로 화면이 과하게 밀리지 않도록 height 사용 유지 */}
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-          <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
             <View style={s.card}>
               {/* 탭 스위처 */}
               <View style={s.switchWrap}>
@@ -179,7 +184,7 @@ export default function Sign() {
               {mode === "login" ? (
                 <>
                   <Text style={s.heading}>이메일로 로그인</Text>
-                  <Text style={s.captionBlack}>이메일과 비밀번호를 입력하세요 (개발용: 빈칸도 OK)</Text>
+                  <Text style={s.captionBlack}>이메일과 비밀번호를 입력하세요.</Text>
 
                   <TextInput
                     style={s.input}
@@ -202,7 +207,6 @@ export default function Sign() {
                   <TouchableOpacity
                     style={s.primaryBtn}
                     onPress={handleLogin}
-                    // 개발용: 비활성화 해제
                     disabled={false}
                   >
                     <Text style={s.primaryTxt}>로그인</Text>
@@ -248,7 +252,6 @@ export default function Sign() {
                   <TouchableOpacity
                     style={s.primaryBtn}
                     onPress={handleSignUp}
-                    // 개발용: 비활성화 해제
                     disabled={false}
                   >
                     <Text style={s.primaryTxt}>회원가입</Text>
@@ -264,19 +267,23 @@ export default function Sign() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bg, position: "relative" },
-  scroll: { flexGrow: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
+  container: { flex: 1, backgroundColor: COLORS.bg },
+  // 🔧 키보드 시 함께 올라오도록, 중앙 정렬 대신 위에서부터 쌓고 여백으로 간격 조절
+  scroll: {
+    flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingTop: S(40),   // 상단 여백
+    paddingBottom: S(24) // 하단 여백
+  },
 
+  // ⬇️ absolute 제거 + 자연스러운 여백으로 배치
   logoBox: {
-    position: "absolute",
-    top: 120,
-    left: (width - LOGO_W) / 2,
-    width: LOGO_W,
+    width: Math.min(width - 32, 420),
     height: LOGO_H,
+    alignSelf: "center",
     justifyContent: "center",
     alignItems: "center",
-    opacity: 1,
-    zIndex: 10,
+    marginBottom: S(16),
   },
 
   title: {
@@ -294,7 +301,8 @@ const s = StyleSheet.create({
     borderRadius: RAD.lg,
     paddingHorizontal: 20,
     paddingBottom: 20,
-    paddingTop: 36,
+    paddingTop: 24, // 로고와 간격 조정
+    alignSelf: "center",
   },
 
   switchWrap: {

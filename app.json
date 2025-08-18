@@ -38,6 +38,8 @@
       ["expo-navigation-bar", { "visible": false }]
     ],
     "extra": {
+      "SPRING_API": "http://:8078",
+      "FAST_API": "http://:8077",
       "eas": {
         "projectId": "cbb42f5d-37f2-49c8-90dd-77ed39c85c8b"
       }

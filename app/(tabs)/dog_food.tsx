@@ -10,7 +10,6 @@ import {
   Platform,
   StatusBar
 } from 'react-native';
-import { router } from 'expo-router';
 
 export default function FoodScreen() {
   const [searchText, setSearchText] = useState('');
@@ -42,39 +41,32 @@ export default function FoodScreen() {
     <>
       <StatusBar hidden={true} />
       <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.backButtonText}>‹</Text>
-        </TouchableOpacity>
-        <Text style={styles.screenTitle}>🦴 사료 & 간식</Text>
-      </View>
-      
-      <View style={styles.content}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="사료나 간식을 검색해보세요"
-          value={searchText}
-          onChangeText={setSearchText}
-        />
+        {/* 상단 여백(검색창 아래로 내림) */}
+        <View style={{ height: 48 }} />
+
+        <View style={styles.content}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="사료나 간식을 검색해보세요"
+            value={searchText}
+            onChangeText={setSearchText}
+          />
         
-        <ScrollView showsVerticalScrollIndicator={false}>
-          <Text style={styles.sectionTitle}>추천 제품</Text>
-          {foodRecommendations.map((item) => (
-            <TouchableOpacity key={item.id} style={styles.foodItem}>
-              <View style={styles.foodInfo}>
-                <Text style={styles.foodName}>{item.name}</Text>
-                <Text style={styles.foodType}>{item.type}</Text>
-                <Text style={styles.foodRating}>⭐ {item.rating}</Text>
-              </View>
-              <Text style={styles.arrowSmall}>›</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-    </SafeAreaView>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <Text style={styles.sectionTitle}>추천 제품</Text>
+            {foodRecommendations.map((item) => (
+              <TouchableOpacity key={item.id} style={styles.foodItem}>
+                <View style={styles.foodInfo}>
+                  <Text style={styles.foodName}>{item.name}</Text>
+                  <Text style={styles.foodType}>{item.type}</Text>
+                  <Text style={styles.foodRating}>⭐ {item.rating}</Text>
+                </View>
+                <Text style={styles.arrowSmall}>›</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </SafeAreaView>
     </>
   );
 }
@@ -82,45 +74,12 @@ export default function FoodScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: '#FFFFFF',
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F8F9FA',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  backButtonText: {
-    fontSize: 24,
-    color: '#2C3E50',
-    fontWeight: 'bold',
-  },
-  screenTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#2C3E50',
+    backgroundColor: '#AEC3A9', // 배경 유지
   },
   content: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 8, // 필요하면 여기도 24~32로 늘려도 됨
   },
   searchInput: {
     backgroundColor: '#FFFFFF',

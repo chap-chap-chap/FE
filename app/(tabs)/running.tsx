@@ -192,6 +192,13 @@ export default function RunningScreen() {
     if (distance > 0 && seconds > 0) calculateCalories();
   }, [distance, seconds, activityType, selectedDogIndices.join(','), dogProfiles.length]);
 
+  // ✅ 운동 완료 배너 5초 후 자동 숨김
+  useEffect(() => {
+    if (!isCompleted) return;
+    const t = setTimeout(() => setIsCompleted(false), 5000);
+    return () => clearTimeout(t);
+  }, [isCompleted]);
+
   const calculateDistance = (coordinates: LocationCoords[]) => {
     if (coordinates.length < 2) return;
     let total = 0;
@@ -218,7 +225,6 @@ export default function RunningScreen() {
     const h = seconds / 3600;
 
     // 사람 칼로리: 러닝/워킹 단순 분리(개발용)
-    // 러닝 ≈ 700 kcal/h, 산책 ≈ 280 kcal/h
     const humanPerHour = activityType === 'run' ? 700 : 280;
     setHumanCalories(Math.round(humanPerHour * h));
 
@@ -449,10 +455,10 @@ export default function RunningScreen() {
     <>
       <StatusBar barStyle="dark-content" backgroundColor="#AEC3A9" />
       <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
-        {/* ▼ 바닥 언더레이: 탭/안전영역까지 아이보리로 매끈하게 덮기 */}
+        {/* ▼ 바닥 언더레이: 탭/안전영역까지 화이트로 매끈하게 덮기 */}
         <View pointerEvents="none" style={[styles.bottomUnderlay, { height: (insets.bottom ?? 0) + 120 }]} />
 
-        {/* 지도 (추천 코스 영역으로 활용 예정) */}
+        {/* 지도 */}
         <View style={[styles.mapContainer, { flex: 1.5, marginTop: -12, marginBottom: -5 }]}>
           {location && (
             <MapView
@@ -484,9 +490,9 @@ export default function RunningScreen() {
           </View>
         )}
 
-        {/* 하단 패널(아이보리) */}
+        {/* 하단 패널(화이트) */}
         <View style={[styles.runningInfo, { paddingBottom: 80 + insets.bottom }]}>
-          {/* 상단 행: 좌측 동반강아지, 우측 프로필관리 */}
+          {/* 상단 행 */}
           <View style={styles.panelTopRow}>
             <TouchableOpacity style={styles.miniSelectDogBtn} onPress={() => setShowDogPicker(true)}>
               <Text style={styles.miniSelectDogTxt}>🐶 동반 강아지</Text>
@@ -733,11 +739,11 @@ export default function RunningScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#AEC3A9', position: 'relative' },
 
-  // ▼ 하단 언더레이(아이보리): 카드가 밑에서 끊겨 보이지 않게 바닥까지 채움
+  // ▼ 하단 언더레이(화이트): 카드가 밑에서 끊겨 보이지 않게 바닥까지 채움
   bottomUnderlay: {
     position: 'absolute',
     left: 0, right: 0, bottom: 0,
-    backgroundColor: '#F7F4E9',
+    backgroundColor: '#FFFFFF', // ← 변경(패널과 동일)
     zIndex: 0
   },
 
@@ -772,9 +778,9 @@ const styles = StyleSheet.create({
   },
   dogInfoText: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold', textAlign: 'center' },
 
-  // 하단 패널(아이보리, 살짝 작게)
+  // 하단 패널(화이트)
   runningInfo: {
-    backgroundColor: '#F7F4E9',
+    backgroundColor: '#FFFFFF', // ← 변경(화이트)
     borderTopLeftRadius: 25,
     borderTopRightRadius: 25,
     paddingHorizontal: 18,

@@ -7,7 +7,6 @@ import {
   Alert,
   Linking,
   Platform,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -15,6 +14,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Region } from 'react-native-maps';
 
 interface Hospital {
@@ -34,6 +34,8 @@ const TABS = ['전체', '거리', '평점', '응급', '24H'] as const;
 type TabKey = typeof TABS[number];
 
 export default function HospitalScreen() {
+  const insets = useSafeAreaInsets();
+
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [region, setRegion] = useState<Region>({
@@ -134,7 +136,6 @@ export default function HospitalScreen() {
         break;
       case '전체':
       default:
-        // 위치 있으면 기본은 거리순, 없으면 그대로
         if (location) list.sort((a,b) => toKm(a.distance) - toKm(b.distance));
         break;
     }
@@ -143,7 +144,7 @@ export default function HospitalScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.loadingBox}>
           <ActivityIndicator size="large" color="#2E6FF2" />
           <Text style={styles.loadingText}>근처 동물병원을 찾는 중…</Text>
@@ -156,17 +157,8 @@ export default function HospitalScreen() {
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="#F5F7FB" />
-      <SafeAreaView style={styles.container}>
-        {/* 상단 헤더 */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => router.back()}>
-            <MaterialCommunityIcons name="chevron-left" size={24} color="#1A1A1A" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Hospital</Text>
-          <View style={styles.iconBtn} />
-        </View>
-
+      <StatusBar barStyle="dark-content" backgroundColor="#AEC3A9" translucent={false} />
+      <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
         {/* 검색 & 툴바 */}
         <View style={styles.toolbar}>
           <TouchableOpacity
@@ -250,7 +242,11 @@ export default function HospitalScreen() {
             <Text style={styles.listCount}>{hospitalsWithDistance.length}곳</Text>
           </View>
 
-          <ScrollView style={{ flex:1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 84 }}>
+          <ScrollView
+            style={{ flex:1 }}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 84 + insets.bottom }}
+          >
             {hospitalsWithDistance.map(h => (
               <View key={h.id} style={[styles.item, h.isEmergency && styles.itemEmergency]}>
                 <View style={{ flex:1 }}>
@@ -281,8 +277,8 @@ export default function HospitalScreen() {
           </ScrollView>
         </View>
 
-        {/* ▼▼ 스샷 스타일 하단 '목차' 세그먼트 탭 ▼▼ */}
-        <View style={styles.bottomTabsWrap}>
+        {/* ▼▼ 하단 세그먼트 탭 ▼▼ */}
+        <View style={[styles.bottomTabsWrap, { bottom: 12 + insets.bottom }]}>
           {TABS.map(t => (
             <TouchableOpacity
               key={t}
@@ -305,19 +301,7 @@ const TEXT = '#1A1A1A';
 const SUBTEXT = '#8A8F98';
 
 const styles = StyleSheet.create({
-  container: { flex:1, backgroundColor:'#F5F7FB' },
-
-  // 헤더
-  header: {
-    flexDirection:'row',
-    alignItems:'center',
-    justifyContent:'space-between',
-    paddingHorizontal:16,
-    paddingVertical:12,
-    backgroundColor:'#F5F7FB'
-  },
-  iconBtn: { width:36, height:36, borderRadius:18, alignItems:'center', justifyContent:'center' },
-  title: { fontSize:18, fontWeight:'700', color: TEXT },
+  container: { flex:1, backgroundColor:'#AEC3A9' },
 
   // 툴바
   toolbar: { paddingHorizontal:16, paddingBottom:8 },
@@ -391,12 +375,12 @@ const styles = StyleSheet.create({
   loadingBox: { flex:1, alignItems:'center', justifyContent:'center' },
   loadingText: { marginTop:10, color:SUBTEXT, fontSize:14 },
 
-  // ▼ 하단 목차(세그먼트 탭) — 스샷 느낌
+  // ▼ 하단 세그먼트 탭
   bottomTabsWrap: {
     position:'absolute',
-    left:16, right:16, bottom:12,
+    left:16, right:16,
     height:44,
-    backgroundColor:'rgba(0,0,0,0.04)', // 스샷의 연한 바 느낌
+    backgroundColor:'rgba(0,0,0,0.04)',
     borderRadius:12,
     padding:4,
     flexDirection:'row',
@@ -406,6 +390,7 @@ const styles = StyleSheet.create({
     borderColor:'rgba(0,0,0,0.06)',
     shadowColor:'#000', shadowOpacity:0.04, shadowRadius:8, shadowOffset:{ width:0, height:2 },
     elevation:2,
+    // bottom은 insets.bottom과 합쳐서 컴포넌트에서 설정
   },
   tabBtn: {
     flex:1,
