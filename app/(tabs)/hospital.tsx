@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -30,6 +30,9 @@ interface Hospital {
   hours: string;
 }
 
+const TABS = ['전체', '거리', '평점', '응급', '24H'] as const;
+type TabKey = typeof TABS[number];
+
 export default function HospitalScreen() {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,6 +42,7 @@ export default function HospitalScreen() {
     latitudeDelta: 0.05,
     longitudeDelta: 0.05,
   });
+  const [tab, setTab] = useState<TabKey>('전체');
 
   // 샘플 데이터
   const hospitals: Hospital[] = [
@@ -102,14 +106,40 @@ export default function HospitalScreen() {
       .catch(e => console.log('네비 오류:', e));
   };
 
-  const hospitalsWithDistance = hospitals
-    .map(h => ({
+  // 거리 계산 + 탭 필터/정렬
+  const hospitalsWithDistance = useMemo(() => {
+    const base = hospitals.map(h => ({
       ...h,
       distance: location
         ? `${calculateDistance(location.coords.latitude, location.coords.longitude, h.latitude, h.longitude)}km`
-        : '위치 없음'
-    }))
-    .sort((a,b) => parseFloat(a.distance||'999') - parseFloat(b.distance||'999'));
+        : undefined
+    }));
+
+    const toKm = (d?:string) => (d ? parseFloat(d) : Number.POSITIVE_INFINITY);
+
+    let list = base.slice();
+
+    switch (tab) {
+      case '거리':
+        list.sort((a,b) => toKm(a.distance) - toKm(b.distance));
+        break;
+      case '평점':
+        list.sort((a,b) => b.rating - a.rating);
+        break;
+      case '응급':
+        list = list.filter(h => h.isEmergency);
+        break;
+      case '24H':
+        list = list.filter(h => h.isEmergency || /24/.test(h.hours));
+        break;
+      case '전체':
+      default:
+        // 위치 있으면 기본은 거리순, 없으면 그대로
+        if (location) list.sort((a,b) => toKm(a.distance) - toKm(b.distance));
+        break;
+    }
+    return list;
+  }, [hospitals, location, tab]);
 
   if (isLoading) {
     return (
@@ -220,18 +250,15 @@ export default function HospitalScreen() {
             <Text style={styles.listCount}>{hospitalsWithDistance.length}곳</Text>
           </View>
 
-          <ScrollView style={{ flex:1 }} showsVerticalScrollIndicator={false}>
+          <ScrollView style={{ flex:1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 84 }}>
             {hospitalsWithDistance.map(h => (
-              <View
-                key={h.id}
-                style={[styles.item, h.isEmergency && styles.itemEmergency]}
-              >
+              <View key={h.id} style={[styles.item, h.isEmergency && styles.itemEmergency]}>
                 <View style={{ flex:1 }}>
                   <View style={styles.itemTopRow}>
                     <Text style={styles.itemName} numberOfLines={1}>
                       {h.name} {h.isEmergency && <Text style={styles.itemBadge}>24H</Text>}
                     </Text>
-                    <Text style={styles.itemDistance}>{h.distance}</Text>
+                    <Text style={styles.itemDistance}>{h.distance ?? '-'}</Text>
                   </View>
                   <Text style={styles.itemAddr} numberOfLines={1}>{h.address}</Text>
                   <View style={styles.itemMeta}>
@@ -252,6 +279,20 @@ export default function HospitalScreen() {
               </View>
             ))}
           </ScrollView>
+        </View>
+
+        {/* ▼▼ 스샷 스타일 하단 '목차' 세그먼트 탭 ▼▼ */}
+        <View style={styles.bottomTabsWrap}>
+          {TABS.map(t => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.tabBtn, tab === t && styles.tabBtnActive]}
+              onPress={() => setTab(t)}
+              activeOpacity={0.9}
+            >
+              <Text style={[styles.tabTxt, tab === t && styles.tabTxtActive]}>{t}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </SafeAreaView>
     </>
@@ -349,4 +390,35 @@ const styles = StyleSheet.create({
   // 로딩
   loadingBox: { flex:1, alignItems:'center', justifyContent:'center' },
   loadingText: { marginTop:10, color:SUBTEXT, fontSize:14 },
+
+  // ▼ 하단 목차(세그먼트 탭) — 스샷 느낌
+  bottomTabsWrap: {
+    position:'absolute',
+    left:16, right:16, bottom:12,
+    height:44,
+    backgroundColor:'rgba(0,0,0,0.04)', // 스샷의 연한 바 느낌
+    borderRadius:12,
+    padding:4,
+    flexDirection:'row',
+    alignItems:'center',
+    justifyContent:'space-between',
+    borderWidth:1,
+    borderColor:'rgba(0,0,0,0.06)',
+    shadowColor:'#000', shadowOpacity:0.04, shadowRadius:8, shadowOffset:{ width:0, height:2 },
+    elevation:2,
+  },
+  tabBtn: {
+    flex:1,
+    height:'100%',
+    borderRadius:8,
+    alignItems:'center',
+    justifyContent:'center',
+  },
+  tabBtnActive: {
+    backgroundColor:'#FFFFFF',
+    borderWidth:1,
+    borderColor:'#0088FF',
+  },
+  tabTxt: { fontSize:12, color:'#333333', fontWeight:'700' },
+  tabTxtActive: { color:'#0088FF' },
 });

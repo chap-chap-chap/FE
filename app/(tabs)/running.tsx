@@ -6,7 +6,6 @@ import {
   Alert,
   Modal,
   Platform,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -15,6 +14,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 
 interface RunningRecord {
@@ -29,23 +29,24 @@ interface DayRecord {
   photos: string[];
   memo: string;
   mood: '😊' | '😐' | '😢' | '🤗' | '😴' | '';
-  entries?: DayEntry[];          // 표준 스키마(누적)
-  runningRecord?: RunningRecord; // 하위호환
-  runningLogs?: RunningRecord[]; // 하위호환
+  entries?: DayEntry[];
+  runningRecord?: RunningRecord;
+  runningLogs?: RunningRecord[];
 }
-
 interface LocationCoords { latitude: number; longitude: number; }
-
 interface DogInfo {
-  name: string;
-  weight: number;
-  age: number;
-  breed: string;
+  name: string; weight: number; age: number; breed: string;
   activityLevel: 'low' | 'medium' | 'high';
 }
 
 export default function RunningScreen() {
+  const insets = useSafeAreaInsets();
+  const TABBAR_OVERLAY = 130;
+
   const [isRunning, setIsRunning] = useState(false);
+  const [activityType, setActivityType] = useState<'run' | 'walk'>('run'); // ▶ 활동(런/워크)
+  const [showActivityPicker, setShowActivityPicker] = useState(false);
+
   const [time, setTime] = useState('00:00');
   const [seconds, setSeconds] = useState(0);
   const [location, setLocation] = useState<LocationCoords | null>(null);
@@ -53,26 +54,20 @@ export default function RunningScreen() {
   const [distance, setDistance] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 강아지 여러마리 관리 & 선택
   const [dogProfiles, setDogProfiles] = useState<DogInfo[]>([]);
-  const [activeDogIndex, setActiveDogIndex] = useState<number | null>(null); // 편집대상
-  const [selectedDogIndices, setSelectedDogIndices] = useState<number[]>([]); // 동반 선택(복수)
+  const [activeDogIndex, setActiveDogIndex] = useState<number | null>(null);
+  const [selectedDogIndices, setSelectedDogIndices] = useState<number[]>([]);
 
-  // 칼로리
   const [humanCalories, setHumanCalories] = useState(0);
   const [dogCaloriesTotal, setDogCaloriesTotal] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
 
-  // 모달
   const [showDogManageModal, setShowDogManageModal] = useState(false);
   const [showDogPicker, setShowDogPicker] = useState(false);
 
-  // 폼
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
   const [dogForm, setDogForm] = useState({
-    name: '',
-    weight: '',
-    age: '',
+    name: '', weight: '', age: '',
     breed: '믹스견',
     activityLevel: 'medium' as 'low' | 'medium' | 'high'
   });
@@ -195,7 +190,7 @@ export default function RunningScreen() {
   // 칼로리 계산 트리거
   useEffect(() => {
     if (distance > 0 && seconds > 0) calculateCalories();
-  }, [distance, seconds, selectedDogIndices.join(','), dogProfiles.length]);
+  }, [distance, seconds, activityType, selectedDogIndices.join(','), dogProfiles.length]);
 
   const calculateDistance = (coordinates: LocationCoords[]) => {
     if (coordinates.length < 2) return;
@@ -218,21 +213,26 @@ export default function RunningScreen() {
     return R * c; // km
   };
 
+  // ▶️ 활동타입에 따라 칼로리 분리 계산
   const calculateCalories = () => {
     const h = seconds / 3600;
-    const humanPerHour = 600; // 대략
+
+    // 사람 칼로리: 러닝/워킹 단순 분리(개발용)
+    // 러닝 ≈ 700 kcal/h, 산책 ≈ 280 kcal/h
+    const humanPerHour = activityType === 'run' ? 700 : 280;
     setHumanCalories(Math.round(humanPerHour * h));
 
-    // 선택된 강아지들의 칼로리 합산
+    // 강아지 칼로리: 활동타입에 따른 가중치
+    const typeFactor = activityType === 'run' ? 1.0 : 0.7;
+
     const totalDog = selectedDogIndices.reduce((sum, idx) => {
       const d = dogProfiles[idx];
       if (!d) return sum;
-      return sum + calculateDogCalories(d, h, distance);
+      return sum + calculateDogCalories(d, h, distance, typeFactor);
     }, 0);
     setDogCaloriesTotal(totalDog);
   };
 
-  // ✅ 캘린더에 entries[] 누적 저장(+구스키마 병합)
   const saveToCalendar = async (runningData: RunningRecord) => {
     try {
       const today = new Date().toISOString().split('T')[0];
@@ -250,15 +250,8 @@ export default function RunningScreen() {
         entries.push({ runningRecord: runningData });
         records[idx] = { ...rec, entries, runningLogs: undefined, runningRecord: undefined };
       } else {
-        records.push({
-          date: today,
-          photos: [],
-          memo: '',
-          mood: '',
-          entries: [{ runningRecord: runningData }]
-        });
+        records.push({ date: today, photos: [], memo: '', mood: '', entries: [{ runningRecord: runningData }] });
       }
-
       await AsyncStorage.setItem('dayRecords', JSON.stringify(records));
       return true;
     } catch {
@@ -266,7 +259,7 @@ export default function RunningScreen() {
     }
   };
 
-  const calculateDogCalories = (dog: DogInfo, hours: number, km: number) => {
+  const calculateDogCalories = (dog: DogInfo, hours: number, km: number, typeFactor = 1.0) => {
     const base = 70 * Math.pow(dog.weight, 0.75);
     const act = { low: 1.2, medium: 1.4, high: 1.8 }[dog.activityLevel];
     const breed: { [k: string]: number } = {
@@ -275,24 +268,16 @@ export default function RunningScreen() {
       '요크셔테리어': 0.8, '푸들': 1.0, '불독': 0.9, '믹스견': 1.0
     };
     const speed = km > 0 && hours > 0 ? Math.min(km / hours, 15) : 5;
-    const intensity = 1 + speed / 20;
+    const intensity = (1 + speed / 20) * typeFactor;
     const daily = base * act * (breed[dog.breed] || 1.0);
     const perHour = daily / 24;
     return Math.round(perHour * intensity * hours);
   };
 
-  // 시작/정지
-  const handleStartStop = () => {
-    if (!isRunning) {
-      setIsRunning(true);
-      setSeconds(0);
-      setTime('00:00');
-      setDistance(0);
-      setHumanCalories(0);
-      setDogCaloriesTotal(0);
-      setIsCompleted(false);
-      if (location) setRoute([location]);
-    } else {
+  // ▶️ 시작/정지(선택 모달 포함)
+  const openStartFlow = () => {
+    if (isRunning) {
+      // 정지 로직
       setIsRunning(false);
       setIsCompleted(true);
       if (seconds > 0 && (distance > 0 || humanCalories > 0)) {
@@ -306,10 +291,8 @@ export default function RunningScreen() {
               text: '예',
               onPress: async () => {
                 const data: RunningRecord = {
-                  duration: time,
-                  distance: `${distance.toFixed(2)}km`,
-                  calories: `${humanCalories}`,
-                  dogCalories: `${dogCaloriesTotal}`
+                  duration: time, distance: `${distance.toFixed(2)}km`,
+                  calories: `${humanCalories}`, dogCalories: `${dogCaloriesTotal}`
                 };
                 const ok = await saveToCalendar(data);
                 if (ok) Alert.alert('저장 완료!', '오늘의 운동 기록이 캘린더에 저장되었습니다! 📅');
@@ -319,7 +302,23 @@ export default function RunningScreen() {
           ]
         );
       }
+    } else {
+      // 시작 전 활동 선택
+      setShowActivityPicker(true);
     }
+  };
+
+  const startWithType = (t: 'run' | 'walk') => {
+    setActivityType(t);
+    setShowActivityPicker(false);
+    setIsRunning(true);
+    setSeconds(0);
+    setTime('00:00');
+    setDistance(0);
+    setHumanCalories(0);
+    setDogCaloriesTotal(0);
+    setIsCompleted(false);
+    if (location) setRoute([location]);
   };
 
   const handleReset = () => {
@@ -400,8 +399,6 @@ export default function RunningScreen() {
           onPress: async () => {
             const removedIndex = activeDogIndex;
             const next = dogProfiles.filter((_, i) => i !== removedIndex);
-
-            // 선택 목록에서 삭제 및 인덱스 보정
             const nextSelected = selectedDogIndices
               .filter(i => i !== removedIndex)
               .map(i => (i > removedIndex ? i - 1 : i));
@@ -431,7 +428,6 @@ export default function RunningScreen() {
     );
   };
 
-  // ---------- 동반 강아지 선택 ----------
   const toggleSelectDog = (idx: number) => {
     setSelectedDogIndices(prev => (
       prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
@@ -441,7 +437,7 @@ export default function RunningScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#FF6B6B" />
         </View>
@@ -451,10 +447,13 @@ export default function RunningScreen() {
 
   return (
     <>
-      <StatusBar hidden={true} />
-      <SafeAreaView style={styles.container}>
-        {/* 지도 */}
-        <View style={styles.mapContainer}>
+      <StatusBar barStyle="dark-content" backgroundColor="#AEC3A9" />
+      <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+        {/* ▼ 바닥 언더레이: 탭/안전영역까지 아이보리로 매끈하게 덮기 */}
+        <View pointerEvents="none" style={[styles.bottomUnderlay, { height: (insets.bottom ?? 0) + 120 }]} />
+
+        {/* 지도 (추천 코스 영역으로 활용 예정) */}
+        <View style={[styles.mapContainer, { flex: 1.5, marginTop: -12, marginBottom: -5 }]}>
           {location && (
             <MapView
               style={styles.map}
@@ -485,37 +484,36 @@ export default function RunningScreen() {
           </View>
         )}
 
-        {/* 런닝 패널 */}
-        <View style={styles.runningInfo}>
-          {/* 우측 상단: 프로필 관리 버튼(깔끔한 위치) */}
+        {/* 하단 패널(아이보리) */}
+        <View style={[styles.runningInfo, { paddingBottom: 80 + insets.bottom }]}>
+          {/* 상단 행: 좌측 동반강아지, 우측 프로필관리 */}
           <View style={styles.panelTopRow}>
-            <View style={{flex:1}} />
-            <TouchableOpacity style={styles.manageBtn} onPress={() => newDogForm()}>
+            <TouchableOpacity style={styles.miniSelectDogBtn} onPress={() => setShowDogPicker(true)}>
+              <Text style={styles.miniSelectDogTxt}>🐶 동반 강아지</Text>
+              {selectedDogIndices.length > 0 && (
+                <View style={styles.miniBadge}>
+                  <Text style={styles.miniBadgeTxt}>{selectedDogIndices.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.manageBtn} onPress={newDogForm}>
               <Text style={styles.manageBtnText}>프로필 관리</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.timerContainer}>
             <Text style={styles.timerText}>{time}</Text>
-            <Text style={styles.timerLabel}>경과 시간</Text>
+            <Text style={styles.timerLabel}>경과 시간 · {activityType === 'run' ? '런닝' : '산책'}</Text>
           </View>
 
-          {/* 시작 버튼 옆에 ‘동반 강아지’ 선택 버튼 */}
+          {/* 중앙 컨트롤 */}
           <View style={styles.controlButtons}>
             <TouchableOpacity
               style={[styles.runButton, { backgroundColor: isRunning ? '#E74C3C' : '#27AE60' }]}
-              onPress={handleStartStop}
+              onPress={openStartFlow}
             >
               <Text style={styles.runButtonText}>{isRunning ? '정지' : '시작'}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.selectDogBtn} onPress={() => setShowDogPicker(true)}>
-              <Text style={styles.selectDogBtnText}>🐶 동반 강아지</Text>
-              {selectedDogIndices.length > 0 && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{selectedDogIndices.length}</Text>
-                </View>
-              )}
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.resetButton} onPress={handleReset}>
@@ -523,7 +521,7 @@ export default function RunningScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* 현재 선택된 강아지 칩 */}
+          {/* 선택 칩 */}
           {selectedDogIndices.length > 0 && (
             <ScrollView
               horizontal
@@ -576,7 +574,7 @@ export default function RunningScreen() {
               <ScrollView style={{ maxHeight: 400 }}>
                 {dogProfiles.length === 0 ? (
                   <Text style={{ color: '#2C3E50', marginBottom: 12 }}>
-                    등록된 강아지가 없어요. 아래 ‘프로필 추가’로 만들어주세요.
+                    등록된 강아지가 없어요. 아래 '프로필 추가'로 만들어주세요.
                   </Text>
                 ) : (
                   dogProfiles.map((d, idx) => {
@@ -618,13 +616,31 @@ export default function RunningScreen() {
           </View>
         </Modal>
 
-        {/* 강아지 프로필 관리 모달 (추가/수정/삭제) */}
+        {/* 활동 선택 모달 (런닝/산책) */}
+        <Modal visible={showActivityPicker} transparent animationType="fade" onRequestClose={() => setShowActivityPicker(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { paddingVertical: 24 }]}>
+              <Text style={styles.modalTitle}>활동을 선택하세요</Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
+                <TouchableOpacity style={styles.activityPickBtn} onPress={() => startWithType('run')}>
+                  <Text style={styles.activityPickTxt}>🏃‍♂️ 런닝</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.activityPickBtn, { backgroundColor: '#4ECDC4' }]} onPress={() => startWithType('walk')}>
+                  <Text style={styles.activityPickTxt}>🚶 산책</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity onPress={() => setShowActivityPicker(false)} style={{ marginTop: 10, alignSelf: 'center' }}>
+                <Text style={{ color: '#7F8C8D', fontWeight: '700' }}>취소</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* 강아지 프로필 관리 모달 */}
         <Modal visible={showDogManageModal} animationType="slide" transparent onRequestClose={() => setShowDogManageModal(false)}>
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>🐕 강아지 정보</Text>
-
-              {/* 등록된 프로필 칩 */}
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                 <View style={styles.dogChipRow}>
                   {dogProfiles.map((d, idx) => (
@@ -644,36 +660,18 @@ export default function RunningScreen() {
                 </View>
               </ScrollView>
 
-              {/* 폼 */}
               <ScrollView style={styles.modalForm}>
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>이름</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    value={dogForm.name}
-                    onChangeText={(text) => setDogForm({ ...dogForm, name: text })}
-                    placeholder="강아지 이름"
-                  />
+                  <TextInput style={styles.textInput} value={dogForm.name} onChangeText={(text) => setDogForm({ ...dogForm, name: text })} placeholder="강아지 이름" />
                 </View>
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>체중 (kg)</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    value={dogForm.weight}
-                    onChangeText={(text) => setDogForm({ ...dogForm, weight: text })}
-                    placeholder="체중을 입력하세요"
-                    keyboardType="numeric"
-                  />
+                  <TextInput style={styles.textInput} value={dogForm.weight} onChangeText={(text) => setDogForm({ ...dogForm, weight: text })} placeholder="체중을 입력하세요" keyboardType="numeric" />
                 </View>
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>나이</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    value={dogForm.age}
-                    onChangeText={(text) => setDogForm({ ...dogForm, age: text })}
-                    placeholder="나이를 입력하세요"
-                    keyboardType="numeric"
-                  />
+                  <TextInput style={styles.textInput} value={dogForm.age} onChangeText={(text) => setDogForm({ ...dogForm, age: text })} placeholder="나이를 입력하세요" keyboardType="numeric" />
                 </View>
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>견종</Text>
@@ -711,7 +709,6 @@ export default function RunningScreen() {
                 </View>
               </ScrollView>
 
-              {/* 버튼들: 삭제(편집일 때만), 닫기, 저장 */}
               <View style={styles.modalButtons}>
                 {formMode === 'edit' && activeDogIndex !== null && (
                   <TouchableOpacity style={styles.modalDeleteButton} onPress={deleteDog}>
@@ -734,23 +731,32 @@ export default function RunningScreen() {
 }
 
 const styles = StyleSheet.create({
-  // 배경: 캘린더와 동일
-  container: { flex: 1, backgroundColor: '#AEC3A9' },
+  container: { flex: 1, backgroundColor: '#AEC3A9', position: 'relative' },
+
+  // ▼ 하단 언더레이(아이보리): 카드가 밑에서 끊겨 보이지 않게 바닥까지 채움
+  bottomUnderlay: {
+    position: 'absolute',
+    left: 0, right: 0, bottom: 0,
+    backgroundColor: '#F7F4E9',
+    zIndex: 0
+  },
 
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
-  // 지도
+  // 지도(조금 더 크게)
   mapContainer: {
     flex: 1,
-    margin: 10,
-    marginTop: 16,
+    margin: 8,
+    marginTop: 0,
+    marginBottom: 0,
     borderRadius: 15,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
-    elevation: 5
+    elevation: 5,
+    zIndex: 1
   },
   map: { flex: 1 },
 
@@ -761,29 +767,52 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginHorizontal: 10,
     borderRadius: 20,
-    marginBottom: 5
+    marginBottom: 5,
+    zIndex: 1
   },
   dogInfoText: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold', textAlign: 'center' },
 
-  // 하단 패널
+  // 하단 패널(아이보리, 살짝 작게)
   runningInfo: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F7F4E9',
     borderTopLeftRadius: 25,
     borderTopRightRadius: 25,
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingHorizontal: 18,
+    paddingTop: 20,
     paddingBottom: 40,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
-    elevation: 5
+    elevation: 5,
+    zIndex: 2,
+    marginTop: 15
   },
   panelTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 8
   },
+
+  // 좌측 상단: 동반 강아지(미니)
+  miniSelectDogBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#EEF3F7',
+    borderRadius: 12,
+    alignSelf: 'flex-start'
+  },
+  miniSelectDogTxt: { color: '#2C3E50', fontWeight: '800' },
+  miniBadge: {
+    position: 'absolute',
+    top: -6, right: -6,
+    width: 20, height: 20, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FF6B6B'
+  },
+  miniBadgeTxt: { color: '#FFF', fontSize: 11, fontWeight: '800' },
+
   manageBtn: {
     alignSelf: 'flex-end',
     backgroundColor: '#F0F1F2',
@@ -794,7 +823,7 @@ const styles = StyleSheet.create({
   manageBtnText: { color: '#2C3E50', fontWeight: '700' },
 
   timerContainer: { alignItems: 'center', marginBottom: 10 },
-  timerText: { fontSize: 48, fontWeight: 'bold', color: '#2C3E50' },
+  timerText: { fontSize: 44, fontWeight: 'bold', color: '#2C3E50' }, // 살짝 작게
   timerLabel: { fontSize: 16, color: '#2C3E50', opacity: 0.75, marginTop: 5 },
 
   controlButtons: {
@@ -804,29 +833,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     gap: 10
   },
-  runButton: { width: 100, height: 100, borderRadius: 50, justifyContent: 'center', alignItems: 'center' },
+  runButton: { width: 92, height: 92, borderRadius: 46, justifyContent: 'center', alignItems: 'center' }, // 작게
   runButtonText: { fontSize: 16, color: '#FFFFFF', fontWeight: 'bold' },
-
-  selectDogBtn: {
-    height: 44,
-    paddingHorizontal: 14,
-    backgroundColor: '#2D9CDB',
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: 130,
-    position: 'relative'
-  },
-  selectDogBtnText: { color: '#FFFFFF', fontWeight: 'bold' },
-  badge: {
-    position: 'absolute',
-    top: -6,
-    right: -6,
-    backgroundColor: '#E74C3C',
-    width: 22, height: 22, borderRadius: 11,
-    alignItems: 'center', justifyContent: 'center'
-  },
-  badgeText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
 
   resetButton: { backgroundColor: '#95A5A6', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12 },
   resetButtonText: { fontSize: 14, color: '#FFFFFF', fontWeight: 'bold' },
@@ -847,9 +855,19 @@ const styles = StyleSheet.create({
   completedSubtext: { fontSize: 14, color: '#FFFFFF', opacity: 0.9 },
 
   // 공통 모달
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
   modalContent: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, width: '92%', maxHeight: '85%' },
   modalTitle: { fontSize: 22, fontWeight: 'bold', color: '#2C3E50', textAlign: 'center', marginBottom: 12 },
+
+  // 활동 선택 모달용 버튼
+  activityPickBtn: {
+    flex: 1,
+    backgroundColor: '#2D9CDB',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center'
+  },
+  activityPickTxt: { color: '#FFF', fontWeight: '800' },
 
   // 동반 강아지 선택 모달
   pickRow: {
