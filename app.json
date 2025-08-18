@@ -35,11 +35,17 @@
     },
     "plugins": [
       "expo-font",
-      ["expo-navigation-bar", { "visible": false }]
+      [
+        "expo-navigation-bar",
+        {
+          "visible": false
+        }
+      ],
+      "expo-secure-store"
     ],
     "extra": {
-      "SPRING_API": "http://:8078",
-      "FAST_API": "http://:8077",
+      "SPRING_API": "http://192.168.75.231:8078",
+      "FAST_API": "http://192.168.75.231:8077",
       "eas": {
         "projectId": "cbb42f5d-37f2-49c8-90dd-77ed39c85c8b"
       }

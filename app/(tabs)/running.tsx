@@ -1,3 +1,4 @@
+// RunningScreen.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import React, { useEffect, useState } from 'react';
@@ -16,6 +17,243 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline } from 'react-native-maps';
+
+/* =========================================================================
+   🔗 Map & Route API 유틸
+   ========================================================================= */
+const BASE_URL = 'https://www.shallwewalk.kro.kr';
+
+type Meta = { total_count: number; pageable_count: number; is_end: boolean };
+
+function qs(params: Record<string, any>) {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null || v === '') continue;
+    sp.set(k, String(v));
+  }
+  return sp.toString();
+}
+
+async function get<T>(path: string, params: Record<string, any> = {}, timeoutMs = 8000): Promise<T> {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  const url = `${BASE_URL}${path}${Object.keys(params).length ? `?${qs(params)}` : ''}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    credentials: 'include',        // ✅ 쿠키 인증
+    signal: controller.signal,
+  });
+  clearTimeout(t);
+  if (!res.ok) {
+    const msg = await res.text().catch(() => '');
+    throw new Error(`[GET ${path}] ${res.status} ${msg}`);
+  }
+  return res.json();
+}
+
+async function post<T>(path: string, body: any, timeoutMs = 10000): Promise<T> {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  const url = `${BASE_URL}${path}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',        // ✅ 쿠키 인증
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  });
+  clearTimeout(t);
+  if (!res.ok) {
+    const msg = await res.text().catch(() => '');
+    throw new Error(`[POST ${path}] ${res.status} ${msg}`);
+  }
+  return res.json();
+}
+
+// 1) /api/map/region/by-coord
+export type RegionDoc = {
+  region_type: string;
+  address_name: string;
+  region_1depth_name: string;
+  region_2depth_name: string;
+  region_3depth_name: string;
+  region_4depth_name: string;
+  code: string;
+  x: number | string;
+  y: number | string;
+};
+type RegionByCoordRes = { meta: Meta; documents: RegionDoc[] };
+async function apiRegionByCoord(params: {
+  x: number; // lon
+  y: number; // lat
+  inputCoord?: 'WGS84' | string;
+  outputCoord?: 'WGS84' | string;
+}) {
+  const { inputCoord = 'WGS84', outputCoord = 'WGS84', ...rest } = params;
+  return get<RegionByCoordRes>('/api/map/region/by-coord', { ...rest, inputCoord, outputCoord });
+}
+
+// 2) /api/map/places/search
+export type PlaceDoc = {
+  id: string;
+  place_name: string;
+  category_name: string;
+  category_group_code: string;
+  category_group_name: string;
+  phone: string;
+  address_name: string;
+  road_address_name: string;
+  x: string; // lon
+  y: string; // lat
+  place_url: string;
+  distance?: string;
+};
+type PlacesSearchRes = { meta: Meta; documents: PlaceDoc[] };
+async function apiPlacesSearch(params: {
+  query: string;
+  x?: number;
+  y?: number;
+  radius?: number;
+  page?: number;
+  size?: number;
+  sort?: 'accuracy' | 'distance' | string;
+}) {
+  return get<PlacesSearchRes>('/api/map/places/search', params);
+}
+
+// 3) /api/map/places/by-category
+type PlacesByCategoryRes = { meta: Meta; documents: PlaceDoc[] };
+async function apiPlacesByCategory(params: {
+  categoryGroupCode: string;
+  x?: number;
+  y?: number;
+  radius?: number;
+  rect?: string;
+  page?: number;
+  size?: number;
+  sort?: 'accuracy' | 'distance' | string;
+}) {
+  return get<PlacesByCategoryRes>('/api/map/places/by-category', params);
+}
+
+// 4) /api/map/coord/transform
+type TransformRes = { meta: Meta; documents: { x: number; y: number }[] };
+async function apiCoordTransform(params: {
+  x: number;
+  y: number;
+  inputCoord?: 'WGS84' | string;
+  outputCoord?: 'WGS84' | string;
+}) {
+  const { inputCoord = 'WGS84', outputCoord = 'WGS84', ...rest } = params;
+  return get<TransformRes>('/api/map/coord/transform', { ...rest, inputCoord, outputCoord });
+}
+
+// 5) /api/map/address/search
+type AddressItem = {
+  address_name: string;
+  address_type: string;
+  x: string;
+  y: string;
+  address?: {
+    address_name: string;
+    region_1depth_name: string;
+    region_2depth_name: string;
+    region_3depth_name: string;
+    region_3depth_h_name: string;
+    h_code: string;
+    b_code: string;
+    mountain_yn: string;
+    main_address_no: string;
+    sub_address_no: string;
+    x: string;
+    y: string;
+  };
+  road_address?: {
+    address_name: string;
+    region_1depth_name: string;
+    region_2depth_name: string;
+    region_3depth_name: string;
+    road_name: string;
+    underground_yn: string;
+    main_building_no: string;
+    sub_building_no: string;
+    building_name: string;
+    zone_no: string;
+    x: string;
+    y: string;
+  };
+};
+type AddressSearchRes = { meta: Meta; documents: AddressItem[] };
+async function apiAddressSearch(params: { query: string; page?: number; size?: number; analyzeType?: 'similar' | string }) {
+  return get<AddressSearchRes>('/api/map/address/search', params);
+}
+
+// 6) /api/map/address/by-coord
+type AddrDetail = NonNullable<AddressItem['address']>;
+type RoadAddrDetail = NonNullable<AddressItem['road_address']>;
+type AddressByCoordRes = { meta: Meta; documents: { address?: AddrDetail; road_address?: RoadAddrDetail }[] };
+async function apiAddressByCoord(params: { x: number; y: number; inputCoord?: 'WGS84' | string }) {
+  const { inputCoord = 'WGS84', ...rest } = params;
+  return get<AddressByCoordRes>('/api/map/address/by-coord', { ...rest, inputCoord });
+}
+
+/* ==== NEW: 러닝/보행 경로 API ============================================ */
+// 7) POST /api/run/plan
+export type RunPlanRes = {
+  targetKm: number;
+  estimatedMinutes: number;
+  usedPoi?: { name: string; id: string; x: number; y: number; distanceToPoiMeters: number };
+  waypoints: { lat: number; lng: number; note?: string }[];
+  approxDistanceKm: number;
+  polylineHint?: string; // 서버 쪽 샘플명
+};
+async function apiRunPlan(body: {
+  lat: number;         // WGS84
+  lng: number;         // WGS84
+  minutes: number;     // 목표 시간(분)
+  paceMinPerKm: number;
+  preferParks: boolean;
+}) {
+  return post<RunPlanRes>('/api/run/plan', body);
+}
+
+// 8) POST /api/route/walk
+export type WalkRouteRes = {
+  distanceMeters: number;
+  durationSeconds: number;
+  encodedPolyline: string;
+};
+async function apiRouteWalk(body: {
+  origin: { latitude: number; longitude: number };
+  destination: { latitude: number; longitude: number };
+}) {
+  return post<WalkRouteRes>('/api/route/walk', body);
+}
+
+/* ==== 공통: 구글 Encoded Polyline 디코더 ================================ */
+function decodePolyline(encoded: string): { latitude: number; longitude: number }[] {
+  // 표준 구글 polyline decoding
+  let index = 0, lat = 0, lng = 0;
+  const coordinates: { latitude: number; longitude: number }[] = [];
+  while (index < encoded.length) {
+    let b, shift = 0, result = 0;
+    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lat += dlat;
+
+    shift = 0; result = 0;
+    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lng += dlng;
+
+    coordinates.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  return coordinates;
+}
+
+/* =========================================================================
+   화면 코드
+   ========================================================================= */
 
 interface RunningRecord {
   duration: string;
@@ -41,10 +279,9 @@ interface DogInfo {
 
 export default function RunningScreen() {
   const insets = useSafeAreaInsets();
-  const TABBAR_OVERLAY = 130;
 
   const [isRunning, setIsRunning] = useState(false);
-  const [activityType, setActivityType] = useState<'run' | 'walk'>('run'); // ▶ 활동(런/워크)
+  const [activityType, setActivityType] = useState<'run' | 'walk'>('run');
   const [showActivityPicker, setShowActivityPicker] = useState(false);
 
   const [time, setTime] = useState('00:00');
@@ -72,10 +309,12 @@ export default function RunningScreen() {
     activityLevel: 'medium' as 'low' | 'medium' | 'high'
   });
 
-  const breeds = [
-    '믹스견','골든 리트리버','래브라도','시바견','보더 콜리','허스키',
-    '말티즈','푸들','비숑 프리제','치와와','요크셔테리어','비글','불독','진돗개'
-  ];
+  // ✅ 현재 위치 주소 표기용
+  const [addressLine, setAddressLine] = useState<string>('');
+
+  // ✅ 추천/보행 경로 상태
+  const [plannedPath, setPlannedPath] = useState<LocationCoords[]>([]);  // run/plan 결과
+  const [walkPath, setWalkPath] = useState<LocationCoords[]>([]);        // route/walk 결과
 
   // 시스템 UI
   useEffect(() => {
@@ -91,7 +330,7 @@ export default function RunningScreen() {
     hideNavigationBar();
   }, []);
 
-  // 위치 초기화
+  // 위치 초기화 (+ 주소/행정동 조회)
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -122,6 +361,18 @@ export default function RunningScreen() {
           setLocation(coords);
           setRoute([coords]);
           setIsLoading(false);
+
+          // 행정동/주소 표시
+          try {
+            const [region, addr] = await Promise.all([
+              apiRegionByCoord({ x: coords.longitude, y: coords.latitude }),
+              apiAddressByCoord({ x: coords.longitude, y: coords.latitude })
+            ]);
+            const dong = region.documents?.[0]?.address_name ?? '';
+            const road = addr.documents?.[0]?.road_address?.address_name;
+            const jibun = addr.documents?.[0]?.address?.address_name;
+            setAddressLine(road || jibun || dong || '');
+          } catch {}
         }
       } catch {
         if (!cancelled) {
@@ -137,7 +388,7 @@ export default function RunningScreen() {
 
   // 타이머
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval> | undefined;
     if (isRunning) {
       interval = setInterval(() => {
         setSeconds((prev) => {
@@ -149,7 +400,7 @@ export default function RunningScreen() {
         });
       }, 1000);
     }
-    return () => clearInterval(interval);
+    return () => { if (interval) clearInterval(interval); };
   }, [isRunning]);
 
   // 이동 경로 추적
@@ -192,7 +443,7 @@ export default function RunningScreen() {
     if (distance > 0 && seconds > 0) calculateCalories();
   }, [distance, seconds, activityType, selectedDogIndices.join(','), dogProfiles.length]);
 
-  // ✅ 운동 완료 배너 5초 후 자동 숨김
+  // 완료 배너 자동 숨김
   useEffect(() => {
     if (!isCompleted) return;
     const t = setTimeout(() => setIsCompleted(false), 5000);
@@ -220,17 +471,12 @@ export default function RunningScreen() {
     return R * c; // km
   };
 
-  // ▶️ 활동타입에 따라 칼로리 분리 계산
   const calculateCalories = () => {
     const h = seconds / 3600;
-
-    // 사람 칼로리: 러닝/워킹 단순 분리(개발용)
     const humanPerHour = activityType === 'run' ? 700 : 280;
     setHumanCalories(Math.round(humanPerHour * h));
 
-    // 강아지 칼로리: 활동타입에 따른 가중치
     const typeFactor = activityType === 'run' ? 1.0 : 0.7;
-
     const totalDog = selectedDogIndices.reduce((sum, idx) => {
       const d = dogProfiles[idx];
       if (!d) return sum;
@@ -280,10 +526,8 @@ export default function RunningScreen() {
     return Math.round(perHour * intensity * hours);
   };
 
-  // ▶️ 시작/정지(선택 모달 포함)
   const openStartFlow = () => {
     if (isRunning) {
-      // 정지 로직
       setIsRunning(false);
       setIsCompleted(true);
       if (seconds > 0 && (distance > 0 || humanCalories > 0)) {
@@ -309,7 +553,6 @@ export default function RunningScreen() {
         );
       }
     } else {
-      // 시작 전 활동 선택
       setShowActivityPicker(true);
     }
   };
@@ -324,6 +567,8 @@ export default function RunningScreen() {
     setHumanCalories(0);
     setDogCaloriesTotal(0);
     setIsCompleted(false);
+    setPlannedPath([]);
+    setWalkPath([]);
     if (location) setRoute([location]);
   };
 
@@ -340,13 +585,60 @@ export default function RunningScreen() {
           setHumanCalories(0);
           setDogCaloriesTotal(0);
           setIsCompleted(false);
+          setPlannedPath([]);
+          setWalkPath([]);
           if (location) setRoute([location]);
         }
       }
     ]);
   };
 
-  // ---------- 프로필 관리 ----------
+  // ✅ 러닝 경로 추천 호출
+  const requestRunPlan = async () => {
+    if (!location) return;
+    try {
+      const res = await apiRunPlan({
+        lat: location.latitude,
+        lng: location.longitude,
+        minutes: 40,          // 기본값: 40분
+        paceMinPerKm: 10,     // 기본값: 10분/km
+        preferParks: true,
+      });
+      // 우선순위: polylineHint → waypoints
+      if (res.polylineHint) {
+        const path = decodePolyline(res.polylineHint);
+        setPlannedPath(path);
+      } else if (res.waypoints?.length) {
+        const path = res.waypoints.map(w => ({ latitude: w.lat, longitude: w.lng }));
+        setPlannedPath(path);
+      } else {
+        Alert.alert('알림', '추천 경로가 없습니다.');
+      }
+    } catch (e: any) {
+      Alert.alert('오류', e?.message ?? 'run/plan 호출 실패');
+    }
+  };
+
+  // ✅ 보행 경로 호출(현재 위치 → 추천 경로의 마지막 지점)
+  const requestWalkRoute = async () => {
+    if (!location) return;
+    const dest = plannedPath.at(-1);
+    if (!dest) {
+      Alert.alert('안내', '먼저 "경로 추천"을 눌러 목적지를 받아주세요.');
+      return;
+    }
+    try {
+      const res = await apiRouteWalk({
+        origin: { latitude: location.latitude, longitude: location.longitude },
+        destination: { latitude: dest.latitude, longitude: dest.longitude },
+      });
+      const decoded = decodePolyline(res.encodedPolyline);
+      setWalkPath(decoded);
+    } catch (e: any) {
+      Alert.alert('오류', e?.message ?? 'route/walk 호출 실패');
+    }
+  };
+
   const newDogForm = () => {
     setFormMode('create');
     setDogForm({ name: '', weight: '', age: '', breed: '믹스견', activityLevel: 'medium' });
@@ -378,7 +670,7 @@ export default function RunningScreen() {
       activityLevel: dogForm.activityLevel
     };
 
-    let nextProfiles = dogProfiles.slice();
+    const nextProfiles = [...dogProfiles];
     if (formMode === 'create') {
       nextProfiles.push(info);
       setActiveDogIndex(nextProfiles.length - 1);
@@ -394,44 +686,40 @@ export default function RunningScreen() {
   const deleteDog = async () => {
     if (activeDogIndex === null) return;
     const target = dogProfiles[activeDogIndex];
-    Alert.alert(
-      '삭제 확인',
-      `${target.name} 프로필을 삭제할까요?`,
-      [
-        { text: '취소', style: 'cancel' },
-        {
-          text: '삭제',
-          style: 'destructive',
-          onPress: async () => {
-            const removedIndex = activeDogIndex;
-            const next = dogProfiles.filter((_, i) => i !== removedIndex);
-            const nextSelected = selectedDogIndices
-              .filter(i => i !== removedIndex)
-              .map(i => (i > removedIndex ? i - 1 : i));
+    Alert.alert('삭제 확인', `${target.name} 프로필을 삭제할까요?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          const removedIndex = activeDogIndex;
+          const next = dogProfiles.filter((_, i) => i !== removedIndex);
+          const nextSelected = selectedDogIndices
+            .filter(i => i !== removedIndex)
+            .map(i => (i > removedIndex ? i - 1 : i));
 
-            setDogProfiles(next);
-            setSelectedDogIndices(nextSelected);
-            await AsyncStorage.setItem('dogProfiles', JSON.stringify(next));
+          setDogProfiles(next);
+          setSelectedDogIndices(nextSelected);
+          await AsyncStorage.setItem('dogProfiles', JSON.stringify(next));
 
-            if (next.length === 0) {
-              setActiveDogIndex(null);
-              setFormMode('create');
-              setDogForm({ name: '', weight: '', age: '', breed: '믹스견', activityLevel: 'medium' });
-            } else {
-              const nextIndex = Math.min(removedIndex, next.length - 1);
-              setActiveDogIndex(nextIndex);
-              setFormMode('edit');
-              const d = next[nextIndex];
-              setDogForm({
-                name: d.name, weight: String(d.weight), age: String(d.age),
-                breed: d.breed, activityLevel: d.activityLevel
-              });
-            }
-            Alert.alert('삭제 완료', '프로필이 삭제되었습니다.');
+          if (next.length === 0) {
+            setActiveDogIndex(null);
+            setFormMode('create');
+            setDogForm({ name: '', weight: '', age: '', breed: '믹스견', activityLevel: 'medium' });
+          } else {
+            const nextIndex = Math.min(removedIndex, next.length - 1);
+            setActiveDogIndex(nextIndex);
+            setFormMode('edit');
+            const d = next[nextIndex];
+            setDogForm({
+              name: d.name, weight: String(d.weight), age: String(d.age),
+              breed: d.breed, activityLevel: d.activityLevel
+            });
           }
+          Alert.alert('삭제 완료', '프로필이 삭제되었습니다.');
         }
-      ]
-    );
+      }
+    ]);
   };
 
   const toggleSelectDog = (idx: number) => {
@@ -455,7 +743,15 @@ export default function RunningScreen() {
     <>
       <StatusBar barStyle="dark-content" backgroundColor="#AEC3A9" />
       <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
-        {/* ▼ 바닥 언더레이: 탭/안전영역까지 화이트로 매끈하게 덮기 */}
+
+        {/* 주소 배지 */}
+        {addressLine ? (
+          <View style={styles.addressBadge}>
+            <Text style={styles.addressBadgeText} numberOfLines={1}>{addressLine}</Text>
+          </View>
+        ) : null}
+
+        {/* ▼ 바닥 언더레이 */}
         <View pointerEvents="none" style={[styles.bottomUnderlay, { height: (insets.bottom ?? 0) + 120 }]} />
 
         {/* 지도 */}
@@ -477,6 +773,12 @@ export default function RunningScreen() {
               {route.length > 1 && (
                 <Polyline coordinates={route} strokeColor="#FF6B6B" strokeWidth={4} lineCap="round" lineJoin="round" />
               )}
+              {plannedPath.length > 1 && (
+                <Polyline coordinates={plannedPath} strokeColor="#2D9CDB" strokeWidth={4} lineCap="round" lineJoin="round" />
+              )}
+              {walkPath.length > 1 && (
+                <Polyline coordinates={walkPath} strokeColor="#4ECDC4" strokeWidth={4} lineCap="round" lineJoin="round" />
+              )}
             </MapView>
           )}
         </View>
@@ -490,12 +792,13 @@ export default function RunningScreen() {
           </View>
         )}
 
-        {/* 하단 패널(화이트) */}
+        {/* 하단 패널 */}
         <View style={[styles.runningInfo, { paddingBottom: 80 + insets.bottom }]}>
           {/* 상단 행 */}
           <View style={styles.panelTopRow}>
+            {/* 좌측: 동반 강아지 */}
             <TouchableOpacity style={styles.miniSelectDogBtn} onPress={() => setShowDogPicker(true)}>
-              <Text style={styles.miniSelectDogTxt}>🐶 동반 강아지</Text>
+              <Text style={styles.miniSelectDogTxt}>동반 강아지</Text>
               {selectedDogIndices.length > 0 && (
                 <View style={styles.miniBadge}>
                   <Text style={styles.miniBadgeTxt}>{selectedDogIndices.length}</Text>
@@ -503,6 +806,17 @@ export default function RunningScreen() {
               )}
             </TouchableOpacity>
 
+            {/* 가운데: 경로 추천 / 보행 경로 (프로필 관리와 동일 스타일) */}
+            <View style={styles.topRowActions}>
+              <TouchableOpacity style={styles.manageBtn} onPress={requestRunPlan}>
+                <Text style={styles.manageBtnText}>런닝 추천</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.manageBtn} onPress={requestWalkRoute}>
+                <Text style={styles.manageBtnText}>산책 추천</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* 우측: 프로필 관리 */}
             <TouchableOpacity style={styles.manageBtn} onPress={newDogForm}>
               <Text style={styles.manageBtnText}>프로필 관리</Text>
             </TouchableOpacity>
@@ -513,8 +827,8 @@ export default function RunningScreen() {
             <Text style={styles.timerLabel}>경과 시간 · {activityType === 'run' ? '런닝' : '산책'}</Text>
           </View>
 
-          {/* 중앙 컨트롤 */}
-          <View style={styles.controlButtons}>
+          {/* 컨트롤 */}
+          <View style={[styles.controlButtons, { marginBottom: 6 }]}>
             <TouchableOpacity
               style={[styles.runButton, { backgroundColor: isRunning ? '#E74C3C' : '#27AE60' }]}
               onPress={openStartFlow}
@@ -622,7 +936,7 @@ export default function RunningScreen() {
           </View>
         </Modal>
 
-        {/* 활동 선택 모달 (런닝/산책) */}
+        {/* 활동 선택 모달 */}
         <Modal visible={showActivityPicker} transparent animationType="fade" onRequestClose={() => setShowActivityPicker(false)}>
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, { paddingVertical: 24 }]}>
@@ -683,7 +997,10 @@ export default function RunningScreen() {
                   <Text style={styles.inputLabel}>견종</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     <View style={styles.breedContainer}>
-                      {breeds.map((breed) => (
+                      {[
+                        '믹스견','골든 리트리버','래브라도','시바견','보더 콜리','허스키',
+                        '말티즈','푸들','비숑 프리제','치와와','요크셔테리어','비글','불독','진돗개'
+                      ].map((breed) => (
                         <TouchableOpacity
                           key={breed}
                           style={[styles.breedButton, dogForm.breed === breed && styles.breedButtonSelected]}
@@ -739,17 +1056,29 @@ export default function RunningScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#AEC3A9', position: 'relative' },
 
-  // ▼ 하단 언더레이(화이트): 카드가 밑에서 끊겨 보이지 않게 바닥까지 채움
+  // 현재 주소 배지
+  addressBadge: {
+    alignSelf: 'center',
+    maxWidth: '92%',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderColor: 'rgba(0,0,0,0.06)',
+    borderWidth: 1,
+    marginBottom: 6
+  },
+  addressBadgeText: { color: '#2C3E50', fontWeight: '700' },
+
   bottomUnderlay: {
     position: 'absolute',
     left: 0, right: 0, bottom: 0,
-    backgroundColor: '#FFFFFF', // ← 변경(패널과 동일)
+    backgroundColor: '#FFFFFF',
     zIndex: 0
   },
 
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
-  // 지도(조금 더 크게)
   mapContainer: {
     flex: 1,
     margin: 8,
@@ -766,7 +1095,6 @@ const styles = StyleSheet.create({
   },
   map: { flex: 1 },
 
-  // 선택 배너
   dogInfoBanner: {
     backgroundColor: '#4ECDC4',
     paddingHorizontal: 15,
@@ -778,9 +1106,8 @@ const styles = StyleSheet.create({
   },
   dogInfoText: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold', textAlign: 'center' },
 
-  // 하단 패널(화이트)
   runningInfo: {
-    backgroundColor: '#FFFFFF', // ← 변경(화이트)
+    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 25,
     borderTopRightRadius: 25,
     paddingHorizontal: 18,
@@ -801,7 +1128,13 @@ const styles = StyleSheet.create({
     marginBottom: 8
   },
 
-  // 좌측 상단: 동반 강아지(미니)
+  // ⭐ 가운데 경로 버튼 묶음 (프로필 관리와 동일 버튼 스타일 재사용)
+  topRowActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8, // RN 0.71+ 지원. 낮은 버전이면 child에 marginRight 사용
+  },
+
   miniSelectDogBtn: {
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -829,7 +1162,7 @@ const styles = StyleSheet.create({
   manageBtnText: { color: '#2C3E50', fontWeight: '700' },
 
   timerContainer: { alignItems: 'center', marginBottom: 10 },
-  timerText: { fontSize: 44, fontWeight: 'bold', color: '#2C3E50' }, // 살짝 작게
+  timerText: { fontSize: 44, fontWeight: 'bold', color: '#2C3E50' },
   timerLabel: { fontSize: 16, color: '#2C3E50', opacity: 0.75, marginTop: 5 },
 
   controlButtons: {
@@ -839,18 +1172,24 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     gap: 10
   },
-  runButton: { width: 92, height: 92, borderRadius: 46, justifyContent: 'center', alignItems: 'center' }, // 작게
+  runButton: { width: 92, height: 92, borderRadius: 46, justifyContent: 'center', alignItems: 'center' },
   runButtonText: { fontSize: 16, color: '#FFFFFF', fontWeight: 'bold' },
 
   resetButton: { backgroundColor: '#95A5A6', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12 },
   resetButtonText: { fontSize: 14, color: '#FFFFFF', fontWeight: 'bold' },
 
-  // 선택된 칩
+  // (하단 API 버튼 스타일은 더 이상 사용 안 함)
+  apiButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  apiButtonText: { color: '#FFFFFF', fontWeight: '800' },
+
   selectedChipRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   selectedChip: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#F0F1F2', borderRadius: 14 },
   selectedChipText: { color: '#2C3E50', fontWeight: '700' },
 
-  // 통계
   statsContainer: { flexDirection: 'row', justifyContent: 'space-around', paddingTop: 18, borderTopWidth: 1, borderTopColor: '#E0E0E0' },
   statItem: { alignItems: 'center' },
   statValue: { fontSize: 18, fontWeight: 'bold', color: '#2C3E50' },
@@ -860,12 +1199,10 @@ const styles = StyleSheet.create({
   completedText: { fontSize: 18, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 5 },
   completedSubtext: { fontSize: 14, color: '#FFFFFF', opacity: 0.9 },
 
-  // 공통 모달
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
   modalContent: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, width: '92%', maxHeight: '85%' },
   modalTitle: { fontSize: 22, fontWeight: 'bold', color: '#2C3E50', textAlign: 'center', marginBottom: 12 },
 
-  // 활동 선택 모달용 버튼
   activityPickBtn: {
     flex: 1,
     backgroundColor: '#2D9CDB',
@@ -875,7 +1212,6 @@ const styles = StyleSheet.create({
   },
   activityPickTxt: { color: '#FFF', fontWeight: '800' },
 
-  // 동반 강아지 선택 모달
   pickRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -906,7 +1242,6 @@ const styles = StyleSheet.create({
   modalSaveButton: { paddingVertical: 14, paddingHorizontal: 18, borderRadius: 10, backgroundColor: '#27AE60', alignItems: 'center' },
   modalSaveText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
 
-  // 프로필 관리 모달 폼
   modalForm: { maxHeight: 420 },
   inputGroup: { marginBottom: 16 },
   inputLabel: { fontSize: 14, fontWeight: 'bold', color: '#2C3E50', marginBottom: 6 },

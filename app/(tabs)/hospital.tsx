@@ -7,14 +7,15 @@ import {
   Alert,
   Linking,
   Platform,
+  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
+  type TextProps,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Region } from 'react-native-maps';
 
 interface Hospital {
@@ -30,12 +31,19 @@ interface Hospital {
   hours: string;
 }
 
-const TABS = ['전체', '거리', '평점', '응급', '24H'] as const;
-type TabKey = typeof TABS[number];
+/** ✅ 이모지 폰트 폴백 전용 Text */
+const EmojiText = ({ style, ...p }: TextProps) => (
+  <Text
+    {...p}
+    style={[
+      { fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif' },
+      // @ts-ignore
+      style,
+    ]}
+  />
+);
 
 export default function HospitalScreen() {
-  const insets = useSafeAreaInsets();
-
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [region, setRegion] = useState<Region>({
@@ -44,9 +52,7 @@ export default function HospitalScreen() {
     latitudeDelta: 0.05,
     longitudeDelta: 0.05,
   });
-  const [tab, setTab] = useState<TabKey>('전체');
 
-  // 샘플 데이터
   const hospitals: Hospital[] = [
     { id:1, name:'우리동물병원', address:'서울시 강남구 테헤란로 123', phone:'02-1234-5678', latitude:37.5765, longitude:126.988, rating:4.8, isEmergency:false, hours:'09:00-18:00' },
     { id:2, name:'24시 응급동물병원', address:'서울시 강남구 강남대로 456', phone:'02-2345-6789', latitude:37.5565, longitude:126.993, rating:4.7, isEmergency:true, hours:'24시간' },
@@ -55,7 +61,6 @@ export default function HospitalScreen() {
     { id:5, name:'펫케어 동물병원', address:'서울시 강남구 역삼로 202', phone:'02-5678-9012', latitude:37.5745, longitude:126.983, rating:4.5, isEmergency:false, hours:'08:00-20:00' },
   ];
 
-  // 네비게이션 바 숨김
   useEffect(() => {
     const hideNavigationBar = async () => {
       if (Platform.OS === 'android') {
@@ -69,7 +74,6 @@ export default function HospitalScreen() {
     hideNavigationBar();
   }, []);
 
-  // 위치 권한 + 현재 위치
   useEffect(() => {
     (async () => {
       try {
@@ -108,43 +112,18 @@ export default function HospitalScreen() {
       .catch(e => console.log('네비 오류:', e));
   };
 
-  // 거리 계산 + 탭 필터/정렬
   const hospitalsWithDistance = useMemo(() => {
-    const base = hospitals.map(h => ({
+    return hospitals.map(h => ({
       ...h,
       distance: location
         ? `${calculateDistance(location.coords.latitude, location.coords.longitude, h.latitude, h.longitude)}km`
         : undefined
     }));
-
-    const toKm = (d?:string) => (d ? parseFloat(d) : Number.POSITIVE_INFINITY);
-
-    let list = base.slice();
-
-    switch (tab) {
-      case '거리':
-        list.sort((a,b) => toKm(a.distance) - toKm(b.distance));
-        break;
-      case '평점':
-        list.sort((a,b) => b.rating - a.rating);
-        break;
-      case '응급':
-        list = list.filter(h => h.isEmergency);
-        break;
-      case '24H':
-        list = list.filter(h => h.isEmergency || /24/.test(h.hours));
-        break;
-      case '전체':
-      default:
-        if (location) list.sort((a,b) => toKm(a.distance) - toKm(b.distance));
-        break;
-    }
-    return list;
-  }, [hospitals, location, tab]);
+  }, [hospitals, location]);
 
   if (isLoading) {
     return (
-      <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <SafeAreaView style={styles.container}>
         <View style={styles.loadingBox}>
           <ActivityIndicator size="large" color="#2E6FF2" />
           <Text style={styles.loadingText}>근처 동물병원을 찾는 중…</Text>
@@ -157,8 +136,9 @@ export default function HospitalScreen() {
 
   return (
     <>
-      <StatusBar barStyle="dark-content" backgroundColor="#AEC3A9" translucent={false} />
-      <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#AEC3A9" />
+      <SafeAreaView style={styles.container}>
+
         {/* 검색 & 툴바 */}
         <View style={styles.toolbar}>
           <TouchableOpacity
@@ -242,11 +222,7 @@ export default function HospitalScreen() {
             <Text style={styles.listCount}>{hospitalsWithDistance.length}곳</Text>
           </View>
 
-          <ScrollView
-            style={{ flex:1 }}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 84 + insets.bottom }}
-          >
+          <ScrollView style={{ flex:1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 84 }}>
             {hospitalsWithDistance.map(h => (
               <View key={h.id} style={[styles.item, h.isEmergency && styles.itemEmergency]}>
                 <View style={{ flex:1 }}>
@@ -258,10 +234,10 @@ export default function HospitalScreen() {
                   </View>
                   <Text style={styles.itemAddr} numberOfLines={1}>{h.address}</Text>
                   <View style={styles.itemMeta}>
-                    <Text style={styles.itemRating}>⭐ {h.rating}</Text>
-                    <Text style={styles.itemHours}>🕐 {h.hours}</Text>
+                    <EmojiText style={styles.itemRating}>⭐ {h.rating}</EmojiText>
+                    <EmojiText style={styles.itemHours}>🕐 {h.hours}</EmojiText>
                   </View>
-                  <Text style={styles.itemPhone}>📞 {h.phone}</Text>
+                  <EmojiText style={styles.itemPhone}>📞 {h.phone}</EmojiText>
                 </View>
 
                 <View style={styles.itemActions}>
@@ -276,20 +252,6 @@ export default function HospitalScreen() {
             ))}
           </ScrollView>
         </View>
-
-        {/* ▼▼ 하단 세그먼트 탭 ▼▼ */}
-        <View style={[styles.bottomTabsWrap, { bottom: 12 + insets.bottom }]}>
-          {TABS.map(t => (
-            <TouchableOpacity
-              key={t}
-              style={[styles.tabBtn, tab === t && styles.tabBtnActive]}
-              onPress={() => setTab(t)}
-              activeOpacity={0.9}
-            >
-              <Text style={[styles.tabTxt, tab === t && styles.tabTxtActive]}>{t}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
       </SafeAreaView>
     </>
   );
@@ -301,7 +263,11 @@ const TEXT = '#1A1A1A';
 const SUBTEXT = '#8A8F98';
 
 const styles = StyleSheet.create({
-  container: { flex:1, backgroundColor:'#AEC3A9' },
+  container: { 
+    flex:1, 
+    backgroundColor:'#AEC3A9',
+    paddingTop: (Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0) + 8,
+  },
 
   // 툴바
   toolbar: { paddingHorizontal:16, paddingBottom:8 },
@@ -374,36 +340,4 @@ const styles = StyleSheet.create({
   // 로딩
   loadingBox: { flex:1, alignItems:'center', justifyContent:'center' },
   loadingText: { marginTop:10, color:SUBTEXT, fontSize:14 },
-
-  // ▼ 하단 세그먼트 탭
-  bottomTabsWrap: {
-    position:'absolute',
-    left:16, right:16,
-    height:44,
-    backgroundColor:'rgba(0,0,0,0.04)',
-    borderRadius:12,
-    padding:4,
-    flexDirection:'row',
-    alignItems:'center',
-    justifyContent:'space-between',
-    borderWidth:1,
-    borderColor:'rgba(0,0,0,0.06)',
-    shadowColor:'#000', shadowOpacity:0.04, shadowRadius:8, shadowOffset:{ width:0, height:2 },
-    elevation:2,
-    // bottom은 insets.bottom과 합쳐서 컴포넌트에서 설정
-  },
-  tabBtn: {
-    flex:1,
-    height:'100%',
-    borderRadius:8,
-    alignItems:'center',
-    justifyContent:'center',
-  },
-  tabBtnActive: {
-    backgroundColor:'#FFFFFF',
-    borderWidth:1,
-    borderColor:'#0088FF',
-  },
-  tabTxt: { fontSize:12, color:'#333333', fontWeight:'700' },
-  tabTxtActive: { color:'#0088FF' },
 });

@@ -1,22 +1,12 @@
 import React, { useMemo, useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  View,
-  Text,
-  StatusBar,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Dimensions,
-  Alert,
+  View, Text, StatusBar, StyleSheet, TextInput, TouchableOpacity,
+  KeyboardAvoidingView, Platform, ScrollView, Dimensions, Alert, ActivityIndicator
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
-
-const DEV_MODE = true; // ✅ 개발용 바로 진입 스위치 (실서비스 시 false)
+import { login as apiLogin, register as apiRegister } from "../src/api/auth"; // ✅ 백엔드 연결
 
 const { width } = Dimensions.get("window");
 const BASE = 375;
@@ -32,17 +22,7 @@ const COLORS = {
 };
 
 const RAD = { sm: S(8), md: S(12), lg: S(20) };
-const LOGO_W = 150;
 const LOGO_H = 52;
-
-type Gender = "male" | "female";
-type User = {
-  email: string;
-  password: string; // 데모용 평문 (실서비스는 반드시 해시!)
-  gender: Gender;
-  age: number;
-  createdAt: string;
-};
 
 export default function Sign() {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -52,114 +32,68 @@ export default function Sign() {
   const [loginPassword, setLoginPassword] = useState("");
 
   // 회원가입 폼
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [gender, setGender] = useState<Gender | null>(null);
-  const [age, setAge] = useState("");
+
+  const [loading, setLoading] = useState(false);
 
   const canLogin = useMemo(() => !!loginEmail && !!loginPassword, [loginEmail, loginPassword]);
-  const canSignUp = useMemo(() => {
-    return validateEmail(email) && password.length >= 6 && !!gender && Number(age) > 0;
-  }, [email, password, gender, age]);
+  const canSignUp = useMemo(() => email.includes("@") && password.length >= 6 && !!name, [email, password, name]);
 
   const completeSignIn = async (emailToSave: string) => {
     await AsyncStorage.setItem("signedIn", "true");
     await AsyncStorage.setItem("currentUserEmail", emailToSave);
-    router.replace("/(tabs)");
+    router.replace("/(tabs)"); // 로그인 후 탭 화면으로 이동
   };
-
-  // 유저 저장 유틸 (Map: { [email]: User })
-  const loadUsers = async (): Promise<Record<string, User>> => {
-    const raw = await AsyncStorage.getItem("users");
-    return raw ? JSON.parse(raw) : {};
-  };
-  const saveUsers = async (users: Record<string, User>) => {
-    await AsyncStorage.setItem("users", JSON.stringify(users));
-  };
-
-  function validateEmail(v: string) {
-    const re = /\S+@\S+\.\S+/;
-    return re.test(v);
-  }
 
   // 로그인
   const handleLogin = async () => {
-    if (DEV_MODE) {
-      await completeSignIn(loginEmail || "dev@local");
+    if (!canLogin) {
+      Alert.alert("입력 확인", "이메일과 비밀번호를 입력하세요.");
       return;
     }
-    if (!canLogin) return;
-    const users = await loadUsers();
-    const key = loginEmail.toLowerCase();
-    const u = users[key];
-    if (!u) {
-      Alert.alert("로그인 실패", "해당 이메일의 계정이 없습니다.");
-      return;
+    try {
+      setLoading(true);
+      const data = await apiLogin(loginEmail.trim(), loginPassword);
+      const displayName = data?.user?.name || loginEmail.trim();
+      Alert.alert("로그인 성공", `안녕, ${displayName}`);
+      await completeSignIn(loginEmail.trim());
+    } catch (e: any) {
+      Alert.alert("로그인 실패", e?.response?.data?.message || e?.message || "다시 시도해 주세요.");
+    } finally {
+      setLoading(false);
     }
-    if (u.password !== loginPassword) {
-      Alert.alert("로그인 실패", "비밀번호가 올바르지 않습니다.");
-      return;
-    }
-    await completeSignIn(u.email);
   };
 
   // 회원가입
   const handleSignUp = async () => {
-    if (DEV_MODE) {
-      await completeSignIn(email || "dev@local");
-      return;
-    }
     if (!canSignUp) {
-      Alert.alert("입력 확인", "모든 항목을 올바르게 입력해주세요. (비밀번호 6자 이상)");
+      Alert.alert("입력 확인", "이름, 이메일, 비밀번호(6자 이상)를 입력하세요.");
       return;
     }
-    const users = await loadUsers();
-    const key = email.toLowerCase();
-    if (users[key]) {
-      Alert.alert("회원가입 실패", "이미 가입된 이메일입니다.");
-      return;
+    try {
+      setLoading(true);
+      await apiRegister(name.trim(), email.trim(), password);
+      Alert.alert("가입 완료", "회원가입이 완료되었습니다. 로그인해 주세요.");
+      setMode("login");
+    } catch (e: any) {
+      Alert.alert("회원가입 실패", e?.response?.data?.message || e?.message || "다시 시도해 주세요.");
+    } finally {
+      setLoading(false);
     }
-    const newUser: User = {
-      email: key,
-      password,
-      gender: gender as Gender,
-      age: Number(age),
-      createdAt: new Date().toISOString(),
-    };
-    users[key] = newUser;
-    await saveUsers(users);
-    Alert.alert("가입 완료", "회원가입이 완료되었습니다. 자동으로 로그인합니다.");
-    await completeSignIn(key);
   };
-
-  const GenderChip = ({ value, label }: { value: Gender; label: string }) => (
-    <TouchableOpacity
-      onPress={() => setGender(value)}
-      style={[
-        s.genderChip,
-        gender === value && { backgroundColor: COLORS.black, borderColor: COLORS.black },
-      ]}
-    >
-      <Text style={[s.genderChipTxt, gender === value && { color: COLORS.white }]}>{label}</Text>
-    </TouchableOpacity>
-  );
 
   return (
     <>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
       <SafeAreaView style={s.container}>
-        {/* ✅ 로고와 카드 모두 같은 트리 안에 → 키보드 올라오면 함께 올라옴 */}
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1 }}
           keyboardVerticalOffset={0}
         >
-          <ScrollView
-            contentContainerStyle={s.scroll}
-            keyboardShouldPersistTaps="handled"
-            bounces={false}
-          >
-            {/* 🔔 로고를 absolute에서 일반 블록으로 변경 */}
+          <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" bounces={false}>
             <View style={s.logoBox}>
               <Text style={s.title}>산책갈까</Text>
             </View>
@@ -204,19 +138,22 @@ export default function Sign() {
                     onChangeText={setLoginPassword}
                   />
 
-                  <TouchableOpacity
-                    style={s.primaryBtn}
-                    onPress={handleLogin}
-                    disabled={false}
-                  >
-                    <Text style={s.primaryTxt}>로그인</Text>
+                  <TouchableOpacity style={s.primaryBtn} onPress={handleLogin} disabled={loading}>
+                    {loading ? <ActivityIndicator /> : <Text style={s.primaryTxt}>로그인</Text>}
                   </TouchableOpacity>
                 </>
               ) : (
                 <>
                   <Text style={s.heading}>계정 만들기</Text>
-                  <Text style={s.captionBlack}>이메일, 비밀번호, 성별(남/여), 나이 (개발용: 빈칸도 OK)</Text>
+                  <Text style={s.captionBlack}>이름, 이메일, 비밀번호를 입력하세요.</Text>
 
+                  <TextInput
+                    style={s.input}
+                    placeholder="이름"
+                    placeholderTextColor={COLORS.sub}
+                    value={name}
+                    onChangeText={setName}
+                  />
                   <TextInput
                     style={s.input}
                     placeholder="email@domain.com"
@@ -235,26 +172,8 @@ export default function Sign() {
                     onChangeText={setPassword}
                   />
 
-                  <View style={s.genderRow}>
-                    <GenderChip value="male" label="남" />
-                    <GenderChip value="female" label="여" />
-                  </View>
-
-                  <TextInput
-                    style={s.input}
-                    placeholder="나이"
-                    placeholderTextColor={COLORS.sub}
-                    keyboardType="number-pad"
-                    value={age}
-                    onChangeText={(t) => setAge(t.replace(/[^0-9]/g, ""))}
-                  />
-
-                  <TouchableOpacity
-                    style={s.primaryBtn}
-                    onPress={handleSignUp}
-                    disabled={false}
-                  >
-                    <Text style={s.primaryTxt}>회원가입</Text>
+                  <TouchableOpacity style={s.primaryBtn} onPress={handleSignUp} disabled={loading}>
+                    {loading ? <ActivityIndicator /> : <Text style={s.primaryTxt}>회원가입</Text>}
                   </TouchableOpacity>
                 </>
               )}
@@ -268,15 +187,7 @@ export default function Sign() {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
-  // 🔧 키보드 시 함께 올라오도록, 중앙 정렬 대신 위에서부터 쌓고 여백으로 간격 조절
-  scroll: {
-    flexGrow: 1,
-    paddingHorizontal: 16,
-    paddingTop: S(40),   // 상단 여백
-    paddingBottom: S(24) // 하단 여백
-  },
-
-  // ⬇️ absolute 제거 + 자연스러운 여백으로 배치
+  scroll: { flexGrow: 1, paddingHorizontal: 16, paddingTop: S(40), paddingBottom: S(24) },
   logoBox: {
     width: Math.min(width - 32, 420),
     height: LOGO_H,
@@ -285,7 +196,6 @@ const s = StyleSheet.create({
     alignItems: "center",
     marginBottom: S(16),
   },
-
   title: {
     fontFamily: "Sunflower_300Light",
     fontSize: 30,
@@ -294,38 +204,22 @@ const s = StyleSheet.create({
     textAlign: "center",
     color: COLORS.text,
   },
-
   card: {
     width: Math.min(width - 32, 420),
     backgroundColor: COLORS.bg,
     borderRadius: RAD.lg,
     paddingHorizontal: 20,
     paddingBottom: 20,
-    paddingTop: 24, // 로고와 간격 조정
+    paddingTop: 24,
     alignSelf: "center",
   },
-
-  switchWrap: {
-    flexDirection: "row",
-    backgroundColor: COLORS.white,
-    borderRadius: RAD.sm,
-    padding: 4,
-    marginBottom: S(16),
-  },
-  switchBtn: {
-    flex: 1,
-    height: S(36),
-    borderRadius: RAD.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  switchWrap: { flexDirection: "row", backgroundColor: COLORS.white, borderRadius: RAD.sm, padding: 4, marginBottom: S(16) },
+  switchBtn: { flex: 1, height: S(36), borderRadius: RAD.sm, alignItems: "center", justifyContent: "center" },
   switchBtnActive: { backgroundColor: COLORS.black },
   switchTxt: { color: COLORS.text, fontWeight: "700" },
   switchTxtActive: { color: COLORS.white },
-
   heading: { fontSize: S(16), fontWeight: "800", color: COLORS.text, textAlign: "center" },
   captionBlack: { fontSize: S(12), color: COLORS.black, textAlign: "center", marginTop: S(6), marginBottom: S(8) },
-
   input: {
     height: S(44),
     backgroundColor: COLORS.white,
@@ -336,27 +230,6 @@ const s = StyleSheet.create({
     borderColor: "#E0E0E0",
     marginTop: S(10),
   },
-
-  genderRow: { flexDirection: "row", gap: 8, marginTop: S(10) },
-  genderChip: {
-    flex: 1,
-    height: S(36),
-    borderRadius: RAD.sm,
-    borderWidth: 1,
-    borderColor: COLORS.line,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.white,
-  },
-  genderChipTxt: { color: COLORS.text, fontWeight: "700" },
-
-  primaryBtn: {
-    height: S(44),
-    borderRadius: RAD.sm,
-    backgroundColor: COLORS.black,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: S(12),
-  },
+  primaryBtn: { height: S(44), borderRadius: RAD.sm, backgroundColor: COLORS.black, alignItems: "center", justifyContent: "center", marginTop: S(12) },
   primaryTxt: { color: COLORS.white, fontWeight: "700", fontSize: S(14) },
 });
