@@ -1,3 +1,4 @@
+// app/sign.tsx
 import React, { useMemo, useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -6,7 +7,7 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
-import { login as apiLogin, register as apiRegister } from "../src/api/auth"; // ✅ 백엔드 연결
+import { login as apiLogin, register as apiRegister } from "../src/api/auth";
 
 const { width } = Dimensions.get("window");
 const BASE = 375;
@@ -19,10 +20,19 @@ const COLORS = {
   line: "#E6E6E6",
   white: "#FFFFFF",
   black: "#000000",
+  danger: "#D32F2F",
+  hint: "#999999",
 };
 
 const RAD = { sm: S(8), md: S(12), lg: S(20) };
 const LOGO_H = 52;
+
+type Sex = "MALE" | "FEMALE";
+
+function isEmail(v: string) {
+  const s = v.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
 
 export default function Sign() {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -36,15 +46,36 @@ export default function Sign() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  // 회원가입 - 프로필
+  const [weightKg, setWeightKg] = useState<string>("65");
+  const [heightCm, setHeightCm] = useState<string>("170");
+  const [age, setAge] = useState<string>("25");
+  const [sex, setSex] = useState<Sex>("MALE");
+
   const [loading, setLoading] = useState(false);
+  const [errorText, setErrorText] = useState<string>("");
+
+  // ===== 검증 로직 =====
+  const emailOk = useMemo(() => isEmail(email), [email]);
+  const nameOk = useMemo(() => !!name.trim(), [name]);
+  const pwOk = useMemo(() => password.length >= 6, [password]);
+
+  const wNum = weightKg === "" ? NaN : Number(weightKg);
+  const hNum = heightCm === "" ? NaN : Number(heightCm);
+  const aNum = age === "" ? NaN : Number(age);
+
+  const weightOk = Number.isFinite(wNum) && wNum >= 1 && wNum <= 300;
+  const heightOk = Number.isFinite(hNum) && hNum >= 50 && hNum <= 250;
+  const ageOk = Number.isFinite(aNum) && aNum >= 1 && aNum <= 120;
+  const sexOk = !!sex;
 
   const canLogin = useMemo(() => !!loginEmail && !!loginPassword, [loginEmail, loginPassword]);
-  const canSignUp = useMemo(() => email.includes("@") && password.length >= 6 && !!name, [email, password, name]);
+  const canSignUp = emailOk && nameOk && pwOk && weightOk && heightOk && ageOk && sexOk;
 
   const completeSignIn = async (emailToSave: string) => {
     await AsyncStorage.setItem("signedIn", "true");
     await AsyncStorage.setItem("currentUserEmail", emailToSave);
-    router.replace("/(tabs)"); // 로그인 후 탭 화면으로 이동
+    router.replace("/(tabs)");
   };
 
   // 로그인
@@ -69,16 +100,35 @@ export default function Sign() {
   // 회원가입
   const handleSignUp = async () => {
     if (!canSignUp) {
-      Alert.alert("입력 확인", "이름, 이메일, 비밀번호(6자 이상)를 입력하세요.");
+      const reasons: string[] = [];
+      if (!nameOk) reasons.push("이름");
+      if (!emailOk) reasons.push("이메일 형식");
+      if (!pwOk) reasons.push("비밀번호(6자 이상)");
+      if (!weightOk) reasons.push("몸무게(1–300)");
+      if (!heightOk) reasons.push("키(50–250)");
+      if (!ageOk) reasons.push("나이(1–120)");
+      if (!sexOk) reasons.push("성별");
+      setErrorText(`입력값을 다시 확인하세요: ${reasons.join(", ")}`);
       return;
     }
+    setErrorText("");
+
     try {
       setLoading(true);
-      await apiRegister(name.trim(), email.trim(), password);
+      await apiRegister(name.trim(), email.trim(), password, {
+        weightKg: wNum,
+        heightCm: hNum,
+        age: aNum,
+        sex,
+      });
       Alert.alert("가입 완료", "회원가입이 완료되었습니다. 로그인해 주세요.");
       setMode("login");
     } catch (e: any) {
-      Alert.alert("회원가입 실패", e?.response?.data?.message || e?.message || "다시 시도해 주세요.");
+      const msg =
+        e?.response?.data?.message ||
+        (e?.response?.status === 502 ? "서버 게이트웨이 오류(502). 잠시 후 다시 시도해 주세요." : e?.message) ||
+        "다시 시도해 주세요.";
+      Alert.alert("회원가입 실패", msg);
     } finally {
       setLoading(false);
     }
@@ -91,7 +141,7 @@ export default function Sign() {
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1 }}
-          keyboardVerticalOffset={0}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
         >
           <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" bounces={false}>
             <View style={s.logoBox}>
@@ -126,16 +176,25 @@ export default function Sign() {
                     placeholderTextColor={COLORS.sub}
                     keyboardType="email-address"
                     autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="email"
+                    textContentType="emailAddress"
+                    returnKeyType="next"
                     value={loginEmail}
-                    onChangeText={setLoginEmail}
+                    onChangeText={(t) => setLoginEmail(t.trim())}
                   />
+
+                  {/* 비밀번호: 항상 가림 (눈 버튼 제거) */}
                   <TextInput
                     style={s.input}
                     placeholder="비밀번호"
                     placeholderTextColor={COLORS.sub}
-                    secureTextEntry
+                    secureTextEntry={true}
+                    autoComplete="password"
+                    textContentType="password"
+                    returnKeyType="done"
                     value={loginPassword}
-                    onChangeText={setLoginPassword}
+                    onChangeText={(t) => setLoginPassword(t)}
                   />
 
                   <TouchableOpacity style={s.primaryBtn} onPress={handleLogin} disabled={loading}>
@@ -145,14 +204,18 @@ export default function Sign() {
               ) : (
                 <>
                   <Text style={s.heading}>계정 만들기</Text>
-                  <Text style={s.captionBlack}>이름, 이메일, 비밀번호를 입력하세요.</Text>
+                  <Text style={s.captionBlack}>이름, 이메일, 비밀번호, 프로필 정보를 입력하세요.</Text>
 
+                  {/* 기본 정보 */}
                   <TextInput
                     style={s.input}
                     placeholder="이름"
                     placeholderTextColor={COLORS.sub}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    returnKeyType="next"
                     value={name}
-                    onChangeText={setName}
+                    onChangeText={(t) => setName(t)}
                   />
                   <TextInput
                     style={s.input}
@@ -160,19 +223,96 @@ export default function Sign() {
                     placeholderTextColor={COLORS.sub}
                     keyboardType="email-address"
                     autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="email"
+                    textContentType="emailAddress"
+                    returnKeyType="next"
                     value={email}
-                    onChangeText={setEmail}
+                    onChangeText={(t) => setEmail(t.trim())}
                   />
+
+                  {/* 비밀번호: 항상 가림 (눈 버튼 제거) */}
                   <TextInput
                     style={s.input}
                     placeholder="비밀번호 (6자 이상)"
                     placeholderTextColor={COLORS.sub}
-                    secureTextEntry
+                    secureTextEntry={true}
+                    autoComplete="new-password"
+                    textContentType="newPassword"
+                    returnKeyType="next"
                     value={password}
-                    onChangeText={setPassword}
+                    onChangeText={(t) => setPassword(t)}
                   />
 
-                  <TouchableOpacity style={s.primaryBtn} onPress={handleSignUp} disabled={loading}>
+                  {/* 프로필 섹션 */}
+                  <View style={s.profileBox}>
+                    <Text style={s.profileTitle}>프로필</Text>
+
+                    <View style={s.row}>
+                      <View style={s.col}>
+                        <Text style={s.label}>몸무게(kg)</Text>
+                        <TextInput
+                          style={s.input}
+                          placeholder="예: 65"
+                          placeholderTextColor={COLORS.sub}
+                          keyboardType={Platform.OS === "ios" ? "decimal-pad" : "decimal-pad"}
+                          returnKeyType="next"
+                          value={weightKg}
+                          onChangeText={(t) => setWeightKg(t.replace(/[^0-9.]/g, ""))}
+                        />
+                      </View>
+                      <View style={s.col}>
+                        <Text style={s.label}>키(cm)</Text>
+                        <TextInput
+                          style={s.input}
+                          placeholder="예: 170"
+                          placeholderTextColor={COLORS.sub}
+                          keyboardType="number-pad"
+                          returnKeyType="next"
+                          value={heightCm}
+                          onChangeText={(t) => setHeightCm(t.replace(/[^0-9]/g, ""))}
+                        />
+                      </View>
+                    </View>
+
+                    <View style={s.row}>
+                      <View style={s.col}>
+                        <Text style={s.label}>나이</Text>
+                        <TextInput
+                          style={s.input}
+                          placeholder="예: 25"
+                          placeholderTextColor={COLORS.sub}
+                          keyboardType="number-pad"
+                          returnKeyType="done"
+                          value={age}
+                          onChangeText={(t) => setAge(t.replace(/[^0-9]/g, ""))}
+                        />
+                      </View>
+                    </View>
+
+                    <Text style={[s.label, { marginTop: S(8) }]}>성별</Text>
+                    <View style={s.sexWrap}>
+                      {(["MALE", "FEMALE"] as Sex[]).map((v) => (
+                        <TouchableOpacity
+                          key={v}
+                          style={[s.chip, sex === v && s.chipActive]}
+                          onPress={() => setSex(v)}
+                        >
+                          <Text style={[s.chipTxt, sex === v && s.chipTxtActive]}>
+                            {v === "MALE" ? "남성" : "여성"}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    {!!errorText && <Text style={s.error}>{errorText}</Text>}
+                  </View>
+
+                  <TouchableOpacity
+                    style={[s.primaryBtn, !canSignUp && { opacity: 0.6 }]}
+                    onPress={handleSignUp}
+                    disabled={loading || !canSignUp}
+                  >
                     {loading ? <ActivityIndicator /> : <Text style={s.primaryTxt}>회원가입</Text>}
                   </TouchableOpacity>
                 </>
@@ -230,6 +370,27 @@ const s = StyleSheet.create({
     borderColor: "#E0E0E0",
     marginTop: S(10),
   },
+
+  // 비밀번호 눈버튼용 스타일은 남겨둬도 무방하지만 사용하지 않음
+  pwWrap: { position: "relative" },
+  pwInput: { paddingRight: S(44) },
+  eyeBtn: { position: "absolute", right: S(10), top: S(10), height: S(24), width: S(24), alignItems: "center", justifyContent: "center" },
+  eyeTxt: { fontSize: S(18) },
+
   primaryBtn: { height: S(44), borderRadius: RAD.sm, backgroundColor: COLORS.black, alignItems: "center", justifyContent: "center", marginTop: S(12) },
   primaryTxt: { color: COLORS.white, fontWeight: "700", fontSize: S(14) },
+
+  /** 프로필 섹션 */
+  profileBox: { marginTop: S(8), backgroundColor: COLORS.white, borderRadius: RAD.sm, padding: S(12) },
+  profileTitle: { fontSize: S(14), fontWeight: "800", color: COLORS.text, marginBottom: S(8) },
+  row: { flexDirection: "row", gap: S(10) },
+  col: { flex: 1 },
+  label: { marginTop: S(6), color: COLORS.sub, fontSize: S(12) },
+  sexWrap: { flexDirection: "row", gap: S(8), marginTop: S(8) },
+  chip: { paddingVertical: S(8), paddingHorizontal: S(12), borderRadius: RAD.sm, backgroundColor: "#F2F2F2" },
+  chipActive: { backgroundColor: COLORS.black },
+  chipTxt: { color: COLORS.text, fontWeight: "700" },
+  chipTxtActive: { color: COLORS.white },
+
+  error: { marginTop: S(8), color: COLORS.danger, fontSize: S(12) },
 });

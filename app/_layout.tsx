@@ -1,28 +1,58 @@
+// app/_layout.tsx (RootLayout)
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, Redirect, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useFonts, Sunflower_300Light } from '@expo-google-fonts/sunflower';
+import React, { useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const BYPASS_LOGIN = false; // ← 로그인 임시 우회(배포 전엔 false)
+const BYPASS_LOGIN = true; // ✅ 배포 전 반드시 false
 
 export default function RootLayout() {
+  const pathname = usePathname();
   const colorScheme = useColorScheme();
 
-  const [loaded] = useFonts({
+  const [fontsLoaded] = useFonts({
     Sunflower_300Light,
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
-  if (!loaded) return null;
 
-  const initial = BYPASS_LOGIN ? '(tabs)' : 'sign';
+  const [ready, setReady] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      if (BYPASS_LOGIN) {
+        setSignedIn(true);
+        setReady(true);
+        return;
+      }
+      try {
+        const flag = await AsyncStorage.getItem('signedIn');
+        setSignedIn(flag === 'true');
+      } catch (e) {
+        // 에러 나도 로그인 안 된 것으로 처리
+        setSignedIn(false);
+      } finally {
+        setReady(true);
+      }
+    })();
+  }, []);
+
+  // 폰트/로그인 상태 로딩될 때는 빈 화면로 두어 깜빡임 방지
+  if (!fontsLoaded || !ready) return null;
+
+  // ✅ 로그인 안됐는데 /sign 이 아니면 강제 이동
+  if (!signedIn && pathname !== '/sign') {
+    return <Redirect href="/sign" />;
+  }
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack initialRouteName={initial} screenOptions={{ headerShown: false }}>
-        {/* 우회 중엔 sign 스크린을 아예 등록하지 않아 왕복을 차단 */}
-        {!BYPASS_LOGIN && <Stack.Screen name="sign" options={{ headerShown: false }} />}
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="sign" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
