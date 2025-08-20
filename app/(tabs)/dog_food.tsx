@@ -12,17 +12,16 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { api } from '../../src/api/client';   // ✅ src/api/client.ts 가져오기 (named export)
-
+import { api } from '../../src/api/client';   // ✅ src/api/client.ts (named export)
 
 // ✅ axios client 버전 checkNutrient
 async function checkNutrient(nutrient: string, value: number): Promise<string> {
   const res = await api.post<string>(
     '/check_nutrient',
-    { nutrient, value },
+    { nutrient, value }, // value: % 우선, 없으면 g
     {
-      responseType: 'text',       // 서버 응답이 string 이라 그대로 받음
-      transformResponse: v => v,  // axios 자동 JSON 파싱 방지
+      responseType: 'text',
+      transformResponse: v => v,
     }
   );
   return typeof res.data === 'string' ? res.data : String(res.data ?? '');
@@ -55,27 +54,33 @@ export default function FoodScreen() {
   ];
 
   /** ---------------- 영양소 체크 UI 상태 ---------------- */
-  const [nutrient, setNutrient] = useState('');      // 예: '단백질'
-  const [valueStr, setValueStr] = useState('');      // 입력값 문자열 상태(숫자만 필터)
+  const quickNutrients = ['단백질', '지방', '섬유질', '수분', '칼슘', '인'];
+  const [nutrient, setNutrient] = useState<string>('단백질'); // ✅ 칩에서만 선택
+  const [valuePercentStr, setValuePercentStr] = useState(''); // % 입력
+  const [valueGramStr, setValueGramStr] = useState('');       // g 입력
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<string>('');  // 서버에서 온 문자열 결과
-
-  const quickNutrients = ['단백질', '지방', '섬유질', '수분'];
+  const [result, setResult] = useState<string>('');
 
   const onPressCheck = async () => {
-    const v = parseFloat(valueStr);
-    if (!nutrient.trim()) {
-      Alert.alert('입력 필요', '영양소명을 입력하세요.');
+    if (!nutrient) {
+      Alert.alert('입력 필요', '영양소를 선택하세요.');
       return;
     }
-    if (Number.isNaN(v)) {
-      Alert.alert('입력 필요', '값을 숫자로 입력하세요.');
+    const percent = parseFloat(valuePercentStr);
+    const grams = parseFloat(valueGramStr);
+
+    if (Number.isNaN(percent) && Number.isNaN(grams)) {
+      Alert.alert('입력 필요', '% 또는 g 중 하나 이상 입력하세요.');
       return;
     }
+
+    // %값이 있으면 우선 사용, 없으면 g 사용
+    const valueToSend = !Number.isNaN(percent) ? percent : grams;
+
     try {
       setLoading(true);
       setResult('');
-      const msg = await checkNutrient(nutrient.trim(), v);
+      const msg = await checkNutrient(nutrient, valueToSend);
       setResult(msg || '결과 없음');
     } catch (e: any) {
       console.log('checkNutrient ERROR', e?.response?.status, e?.message);
@@ -118,7 +123,7 @@ export default function FoodScreen() {
             <View style={styles.card}>
               <Text style={styles.cardTitle}>사료 영양소 체크</Text>
 
-              {/* 빠른 선택 칩 */}
+              {/* 빠른 선택 칩 (영양소명 입력 삭제) */}
               <View style={styles.chipRow}>
                 {quickNutrients.map((n) => (
                   <TouchableOpacity
@@ -132,39 +137,40 @@ export default function FoodScreen() {
                 ))}
               </View>
 
+              {/* 값 입력: % + g */}
               <View style={styles.inputRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>영양소명</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="예) 단백질"
-                    value={nutrient}
-                    onChangeText={setNutrient}
-                  />
-                </View>
-                <View style={{ width: 110, marginLeft: 10 }}>
-                  <Text style={styles.label}>값 (%)</Text>
+                <View style={{ width: 110 }}>
+                  <Text style={styles.label}>값(%)</Text>
                   <TextInput
                     style={styles.input}
                     placeholder="예) 25"
                     keyboardType="numeric"
-                    value={valueStr}
-                    onChangeText={(t) => setValueStr(t.replace(/[^0-9.]/g, ''))}
+                    value={valuePercentStr}
+                    onChangeText={(t) => setValuePercentStr(t.replace(/[^0-9.]/g, ''))}
+                  />
+                </View>
+                <View style={{ width: 110, marginLeft: 10 }}>
+                  <Text style={styles.label}>값(g)</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="예) 2.5"
+                    keyboardType="numeric"
+                    value={valueGramStr}
+                    onChangeText={(t) => setValueGramStr(t.replace(/[^0-9.]/g, ''))}
                   />
                 </View>
               </View>
 
               <TouchableOpacity
-                style={[styles.checkBtn, (!nutrient.trim() || !valueStr) && { opacity: 0.6 }]}
+                style={[
+                  styles.checkBtn,
+                  (!nutrient || (!valuePercentStr && !valueGramStr)) && { opacity: 0.6 },
+                ]}
                 onPress={onPressCheck}
-                disabled={!nutrient.trim() || !valueStr || loading}
+                disabled={!nutrient || (!valuePercentStr && !valueGramStr) || loading}
                 activeOpacity={0.9}
               >
-                {loading ? (
-                  <ActivityIndicator color="#FFF" />
-                ) : (
-                  <Text style={styles.checkBtnText}>검사</Text>
-                )}
+                {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.checkBtnText}>검사</Text>}
               </TouchableOpacity>
 
               {!!result && (

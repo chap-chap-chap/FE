@@ -3,7 +3,7 @@ import React, { useMemo, useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   View, Text, StatusBar, StyleSheet, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ScrollView, Dimensions, Alert, ActivityIndicator
+  KeyboardAvoidingView, Platform, ScrollView, Dimensions, Alert, ActivityIndicator,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
@@ -21,17 +21,37 @@ const COLORS = {
   white: "#FFFFFF",
   black: "#000000",
   danger: "#D32F2F",
-  hint: "#999999",
 };
 
 const RAD = { sm: S(8), md: S(12), lg: S(20) };
 const LOGO_H = 52;
 
 type Sex = "MALE" | "FEMALE";
+const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim().toLowerCase());
 
-function isEmail(v: string) {
-  const s = v.trim().toLowerCase();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+/** ---------- 로그인 응답에서 토큰 추출 & 저장 ---------- */
+const TOKEN_KEYS = ["accessToken", "token", "jwt", "idToken", "Authorization"];
+function pickToken(resp: any): string {
+  if (!resp) return "";
+  for (const k of TOKEN_KEYS) {
+    const v = resp?.[k] ?? resp?.data?.[k];
+    if (v) return String(v);
+  }
+  if (resp?.user?.token) return String(resp.user.token);
+  return "";
+}
+
+async function persistAuth(resp: any, email: string) {
+  const token = pickToken(resp);
+  const pairs: [string, string][] = [
+    ["signedIn", "true"],
+    ["currentUserEmail", email],
+  ];
+  if (token) {
+    pairs.push(["accessToken", token], ["Authorization", token.startsWith("Bearer ") ? token : `Bearer ${token}`]);
+  }
+  if (resp?.refreshToken) pairs.push(["refreshToken", String(resp.refreshToken)]);
+  await AsyncStorage.multiSet(pairs);
 }
 
 export default function Sign() {
@@ -53,12 +73,13 @@ export default function Sign() {
   const [sex, setSex] = useState<Sex>("MALE");
 
   const [loading, setLoading] = useState(false);
+  const [navigating, setNavigating] = useState(false);
   const [errorText, setErrorText] = useState<string>("");
 
-  // ===== 검증 로직 =====
+  // ===== 검증 =====
   const emailOk = useMemo(() => isEmail(email), [email]);
-  const nameOk = useMemo(() => !!name.trim(), [name]);
-  const pwOk = useMemo(() => password.length >= 6, [password]);
+  const nameOk  = useMemo(() => !!name.trim(), [name]);
+  const pwOk    = useMemo(() => password.length >= 6, [password]);
 
   const wNum = weightKg === "" ? NaN : Number(weightKg);
   const hNum = heightCm === "" ? NaN : Number(heightCm);
@@ -66,30 +87,40 @@ export default function Sign() {
 
   const weightOk = Number.isFinite(wNum) && wNum >= 1 && wNum <= 300;
   const heightOk = Number.isFinite(hNum) && hNum >= 50 && hNum <= 250;
-  const ageOk = Number.isFinite(aNum) && aNum >= 1 && aNum <= 120;
-  const sexOk = !!sex;
+  const ageOk    = Number.isFinite(aNum) && aNum >= 1 && aNum <= 120;
+  const sexOk    = !!sex;
 
-  const canLogin = useMemo(() => !!loginEmail && !!loginPassword, [loginEmail, loginPassword]);
+  const canLogin  = useMemo(() => !!loginEmail.trim() && !!loginPassword, [loginEmail, loginPassword]);
   const canSignUp = emailOk && nameOk && pwOk && weightOk && heightOk && ageOk && sexOk;
 
-  const completeSignIn = async (emailToSave: string) => {
-    await AsyncStorage.setItem("signedIn", "true");
-    await AsyncStorage.setItem("currentUserEmail", emailToSave);
-    router.replace("/(tabs)");
+  const completeSignIn = async (emailToSave: string, resp: any) => {
+    // 1) 저장
+    await persistAuth(resp, emailToSave);
+    // 2) 중복 네비 방지 + 한 번만 replace
+    if (navigating) return;
+    setNavigating(true);
+    // 다음 프레임에 라우팅(레이아웃 re-render 이후)
+    requestAnimationFrame(() => {
+      router.replace("/(tabs)");
+      // 혹시 모를 중복 방지 타이머(옵션)
+      setTimeout(() => setNavigating(false), 400);
+    });
   };
 
   // 로그인
   const handleLogin = async () => {
-    if (!canLogin) {
+    if (loading || navigating) return;
+    const emailTrim = loginEmail.trim();
+    if (!emailTrim || !loginPassword) {
       Alert.alert("입력 확인", "이메일과 비밀번호를 입력하세요.");
       return;
     }
     try {
       setLoading(true);
-      const data = await apiLogin(loginEmail.trim(), loginPassword);
-      const displayName = data?.user?.name || loginEmail.trim();
+      const data = await apiLogin(emailTrim, loginPassword);
+      const displayName = data?.user?.name || emailTrim;
       Alert.alert("로그인 성공", `안녕, ${displayName}`);
-      await completeSignIn(loginEmail.trim());
+      await completeSignIn(emailTrim, data);
     } catch (e: any) {
       Alert.alert("로그인 실패", e?.response?.data?.message || e?.message || "다시 시도해 주세요.");
     } finally {
@@ -99,15 +130,16 @@ export default function Sign() {
 
   // 회원가입
   const handleSignUp = async () => {
+    if (loading || navigating) return;
     if (!canSignUp) {
       const reasons: string[] = [];
-      if (!nameOk) reasons.push("이름");
-      if (!emailOk) reasons.push("이메일 형식");
-      if (!pwOk) reasons.push("비밀번호(6자 이상)");
+      if (!nameOk)   reasons.push("이름");
+      if (!emailOk)  reasons.push("이메일 형식");
+      if (!pwOk)     reasons.push("비밀번호(6자 이상)");
       if (!weightOk) reasons.push("몸무게(1–300)");
       if (!heightOk) reasons.push("키(50–250)");
-      if (!ageOk) reasons.push("나이(1–120)");
-      if (!sexOk) reasons.push("성별");
+      if (!ageOk)    reasons.push("나이(1–120)");
+      if (!sexOk)    reasons.push("성별");
       setErrorText(`입력값을 다시 확인하세요: ${reasons.join(", ")}`);
       return;
     }
@@ -116,10 +148,7 @@ export default function Sign() {
     try {
       setLoading(true);
       await apiRegister(name.trim(), email.trim(), password, {
-        weightKg: wNum,
-        heightCm: hNum,
-        age: aNum,
-        sex,
+        weightKg: wNum, heightCm: hNum, age: aNum, sex,
       });
       Alert.alert("가입 완료", "회원가입이 완료되었습니다. 로그인해 주세요.");
       setMode("login");
@@ -141,7 +170,7 @@ export default function Sign() {
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1 }}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+          keyboardVerticalOffset={0}
         >
           <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" bounces={false}>
             <View style={s.logoBox}>
@@ -181,23 +210,27 @@ export default function Sign() {
                     textContentType="emailAddress"
                     returnKeyType="next"
                     value={loginEmail}
-                    onChangeText={(t) => setLoginEmail(t.trim())}
+                    onChangeText={setLoginEmail}
                   />
 
-                  {/* 비밀번호: 항상 가림 (눈 버튼 제거) */}
                   <TextInput
                     style={s.input}
                     placeholder="비밀번호"
                     placeholderTextColor={COLORS.sub}
-                    secureTextEntry={true}
+                    secureTextEntry
                     autoComplete="password"
                     textContentType="password"
                     returnKeyType="done"
                     value={loginPassword}
-                    onChangeText={(t) => setLoginPassword(t)}
+                    onChangeText={setLoginPassword}
+                    onSubmitEditing={handleLogin}
                   />
 
-                  <TouchableOpacity style={s.primaryBtn} onPress={handleLogin} disabled={loading}>
+                  <TouchableOpacity
+                    style={[s.primaryBtn, (loading || navigating || !canLogin) && { opacity: 0.6 }]}
+                    onPress={handleLogin}
+                    disabled={loading || navigating || !canLogin}
+                  >
                     {loading ? <ActivityIndicator /> : <Text style={s.primaryTxt}>로그인</Text>}
                   </TouchableOpacity>
                 </>
@@ -206,7 +239,6 @@ export default function Sign() {
                   <Text style={s.heading}>계정 만들기</Text>
                   <Text style={s.captionBlack}>이름, 이메일, 비밀번호, 프로필 정보를 입력하세요.</Text>
 
-                  {/* 기본 정보 */}
                   <TextInput
                     style={s.input}
                     placeholder="이름"
@@ -215,7 +247,7 @@ export default function Sign() {
                     autoCorrect={false}
                     returnKeyType="next"
                     value={name}
-                    onChangeText={(t) => setName(t)}
+                    onChangeText={setName}
                   />
                   <TextInput
                     style={s.input}
@@ -228,20 +260,18 @@ export default function Sign() {
                     textContentType="emailAddress"
                     returnKeyType="next"
                     value={email}
-                    onChangeText={(t) => setEmail(t.trim())}
+                    onChangeText={setEmail}
                   />
-
-                  {/* 비밀번호: 항상 가림 (눈 버튼 제거) */}
                   <TextInput
                     style={s.input}
                     placeholder="비밀번호 (6자 이상)"
                     placeholderTextColor={COLORS.sub}
-                    secureTextEntry={true}
+                    secureTextEntry
                     autoComplete="new-password"
                     textContentType="newPassword"
                     returnKeyType="next"
                     value={password}
-                    onChangeText={(t) => setPassword(t)}
+                    onChangeText={setPassword}
                   />
 
                   {/* 프로필 섹션 */}
@@ -255,7 +285,7 @@ export default function Sign() {
                           style={s.input}
                           placeholder="예: 65"
                           placeholderTextColor={COLORS.sub}
-                          keyboardType={Platform.OS === "ios" ? "decimal-pad" : "decimal-pad"}
+                          keyboardType="decimal-pad"
                           returnKeyType="next"
                           value={weightKg}
                           onChangeText={(t) => setWeightKg(t.replace(/[^0-9.]/g, ""))}
@@ -309,9 +339,9 @@ export default function Sign() {
                   </View>
 
                   <TouchableOpacity
-                    style={[s.primaryBtn, !canSignUp && { opacity: 0.6 }]}
+                    style={[s.primaryBtn, (loading || navigating || !canSignUp) && { opacity: 0.6 }]}
                     onPress={handleSignUp}
-                    disabled={loading || !canSignUp}
+                    disabled={loading || navigating || !canSignUp}
                   >
                     {loading ? <ActivityIndicator /> : <Text style={s.primaryTxt}>회원가입</Text>}
                   </TouchableOpacity>
@@ -370,13 +400,6 @@ const s = StyleSheet.create({
     borderColor: "#E0E0E0",
     marginTop: S(10),
   },
-
-  // 비밀번호 눈버튼용 스타일은 남겨둬도 무방하지만 사용하지 않음
-  pwWrap: { position: "relative" },
-  pwInput: { paddingRight: S(44) },
-  eyeBtn: { position: "absolute", right: S(10), top: S(10), height: S(24), width: S(24), alignItems: "center", justifyContent: "center" },
-  eyeTxt: { fontSize: S(18) },
-
   primaryBtn: { height: S(44), borderRadius: RAD.sm, backgroundColor: COLORS.black, alignItems: "center", justifyContent: "center", marginTop: S(12) },
   primaryTxt: { color: COLORS.white, fontWeight: "700", fontSize: S(14) },
 
